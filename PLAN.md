@@ -25,7 +25,7 @@ options, then assemble `[correct] + distractors`, shuffle server-side, and recor
 - [x] 7. Input UI (paste + file upload + options)
 - [x] 8. Results UI (question cards, highlight correct, regenerate-one)
 - [x] 9. Export (CSV + GIFT/Moodle)
-- [ ] 10. Dockerize (backend Dockerfile, frontend multi-stage + nginx, docker-compose, .dockerignore)
+- [x] 10. Dockerize (backend Dockerfile, frontend multi-stage + nginx, docker-compose, .dockerignore)
 - [ ] 11. Polish (loading/error/empty states, rate-limit handling)
 
 ## Defaults (override anytime)

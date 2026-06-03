@@ -1,0 +1,23 @@
+# MCQ Distractor Generator — full stack.
+#   docker compose up --build
+# Then open http://localhost:8080
+#
+# The API key is read at runtime from backend/.env (see backend/.env.example).
+# It is never baked into an image layer.
+
+services:
+  backend:
+    build: ./backend
+    env_file:
+      - ./backend/.env
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    restart: unless-stopped
