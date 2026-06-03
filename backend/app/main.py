@@ -8,7 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.generator import generate_batch
 from app.models import GenerateRequest, GenerateResponse
-from app.parsing import ParseResult, parse_upload
+from app.parsing import ParseResult, parse_text, parse_upload
+from pydantic import BaseModel, Field
 
 # Reject uploads larger than this to avoid unbounded memory use.
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
@@ -66,6 +67,17 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
         )
     results = await generate_batch(client, settings, req.questions)
     return GenerateResponse(results=results)
+
+
+class ParseTextRequest(BaseModel):
+    text: str = Field(..., max_length=1_000_000)
+    format: str = "auto"  # auto | csv | json | lines
+
+
+@app.post("/parse-text", response_model=ParseResult)
+async def parse_text_endpoint(req: ParseTextRequest) -> ParseResult:
+    """Parse a raw text blob (pasted input) into questions for preview."""
+    return parse_text(req.text, req.format)
 
 
 @app.post("/parse", response_model=ParseResult)

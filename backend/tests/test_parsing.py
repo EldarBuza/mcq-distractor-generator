@@ -3,6 +3,7 @@ from app.parsing import (
     parse_csv,
     parse_json,
     parse_pasted_text,
+    parse_text,
     parse_upload,
 )
 
@@ -100,4 +101,29 @@ def test_parse_upload_by_extension():
 
 def test_parse_upload_handles_bom():
     res = parse_upload("q.csv", "﻿question,correct_answer\nQ?,A\n".encode("utf-8"))
+    assert len(res.questions) == 1
+
+
+# ---- parse_text auto-detection ----------------------------------------------
+
+
+def test_parse_text_auto_json():
+    res = parse_text('[{"question":"Q?","correct_answer":"A"}]')
+    assert len(res.questions) == 1
+
+
+def test_parse_text_auto_csv():
+    res = parse_text("question,correct_answer\nQ?,A\n")
+    assert len(res.questions) == 1
+
+
+def test_parse_text_auto_lines():
+    res = parse_text("Capital of Japan? | Tokyo")
+    assert len(res.questions) == 1
+    assert res.questions[0].correct_answer == "Tokyo"
+
+
+def test_parse_text_explicit_format_overrides_sniff():
+    # Looks like it could sniff as lines, but force csv.
+    res = parse_text("question,correct_answer\nQ?,A\n", fmt="csv")
     assert len(res.questions) == 1

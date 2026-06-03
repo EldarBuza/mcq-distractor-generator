@@ -154,6 +154,31 @@ def parse_pasted_text(text: str, delimiter: str | None = None) -> ParseResult:
     return ParseResult(questions=questions, errors=errors)
 
 
+def parse_text(text: str, fmt: str = "auto") -> ParseResult:
+    """Parse a raw text blob (e.g. pasted input) in the given format.
+
+    fmt: "auto" | "csv" | "json" | "lines". "auto" sniffs the content: JSON if it
+    starts with [ or {, CSV if the first line looks like a header with the
+    required columns, otherwise line-delimited 'question | answer'.
+    """
+    if fmt == "json":
+        return parse_json(text)
+    if fmt == "csv":
+        return parse_csv(text)
+    if fmt == "lines":
+        return parse_pasted_text(text)
+
+    # auto
+    stripped = text.lstrip()
+    if stripped.startswith("[") or stripped.startswith("{"):
+        return parse_json(text)
+    first_line = next((ln for ln in text.splitlines() if ln.strip()), "")
+    header = {c.strip().lower() for c in first_line.split(",")}
+    if (_QUESTION_KEYS & header) and (_ANSWER_KEYS & header):
+        return parse_csv(text)
+    return parse_pasted_text(text)
+
+
 def parse_upload(filename: str, content: bytes) -> ParseResult:
     """Dispatch by file extension to the right parser."""
     try:

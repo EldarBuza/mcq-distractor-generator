@@ -45,3 +45,15 @@ export async function parseFile(file: File): Promise<ParseResult> {
   const resp = await fetch(`${BASE}/parse`, { method: 'POST', body: form })
   return asJson<ParseResult>(resp)
 }
+
+export async function parseText(
+  text: string,
+  format: 'auto' | 'csv' | 'json' | 'lines' = 'auto',
+): Promise<ParseResult> {
+  const resp = await fetch(`${BASE}/parse-text`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, format }),
+  })
+  return asJson<ParseResult>(resp)
+}

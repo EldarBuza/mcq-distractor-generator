@@ -22,7 +22,7 @@ options, then assemble `[correct] + distractors`, shuffle server-side, and recor
 - [x] 4. `/generate` endpoint (batch, concurrency, error handling)
 - [x] 5. Input parsing (CSV + JSON + paste)
 - [x] 6. Frontend scaffold (Vite+TS+Tailwind+shadcn, talks to `/health`)
-- [ ] 7. Input UI (paste + file upload + options)
+- [x] 7. Input UI (paste + file upload + options)
 - [ ] 8. Results UI (question cards, highlight correct, regenerate-one)
 - [ ] 9. Export (CSV; GIFT/Moodle optional)
 - [ ] 10. Dockerize (backend Dockerfile, frontend multi-stage + nginx, docker-compose, .dockerignore)
