@@ -16,7 +16,7 @@ options, then assemble `[correct] + distractors`, shuffle server-side, and recor
 `correct_index`. The correct-answer guarantee is enforced in code, not the prompt.
 
 ## Build order
-- [ ] 1. Backend skeleton (FastAPI app, config, `/health`, venv + deps)
+- [x] 1. Backend skeleton (FastAPI app, config, `/health`, venv + deps)
 - [ ] 2. Schemas + prompt (`models.py`, `prompts.py` with few-shot)
 - [ ] 3. Core generator (single question vs real API)
 - [ ] 4. `/generate` endpoint (batch, concurrency, error handling)
