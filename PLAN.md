@@ -8,6 +8,7 @@ THE correct answer.
 - **Backend:** FastAPI + Anthropic SDK (Claude Haiku 4.5), Pydantic
 - **Frontend:** React + Vite + TypeScript + Tailwind + shadcn/ui
 - **Model:** `claude-haiku-4-5-20251001` (configurable via env)
+- **Packaging:** Docker + docker-compose (`docker compose up` runs both services)
 
 ## Core design rule
 Never ask the model to include the correct answer. Ask only for N *wrong*
@@ -24,7 +25,8 @@ options, then assemble `[correct] + distractors`, shuffle server-side, and recor
 - [ ] 7. Input UI (paste + file upload + options)
 - [ ] 8. Results UI (question cards, highlight correct, regenerate-one)
 - [ ] 9. Export (CSV; GIFT/Moodle optional)
-- [ ] 10. Polish (loading/error/empty states, rate-limit handling)
+- [ ] 10. Dockerize (backend Dockerfile, frontend multi-stage + nginx, docker-compose, .dockerignore)
+- [ ] 11. Polish (loading/error/empty states, rate-limit handling)
 
 ## Defaults (override anytime)
 - Input: paste-in + CSV (`question,correct_answer`) + JSON. `.docx` deferred.
@@ -34,6 +36,10 @@ options, then assemble `[correct] + distractors`, shuffle server-side, and recor
 - Self-critique pass: built but off by default (toggle); ~doubles cost.
 - Auth/persistence: none in v1 (stateless, no DB).
 - Secrets: `ANTHROPIC_API_KEY` in `backend/.env` (gitignored). User supplies it.
+- Docker: `.env` passed at runtime via compose `env_file:` — never baked into an
+  image layer. Local dev (uvicorn + vite) stays fully supported alongside Docker.
+- Frontend container: nginx serves the built bundle and proxies `/api` -> backend,
+  so CORS is a non-issue in the dockerized setup.
 
 ## Cost/quality measures
 - Prompt caching on the system block (rules + few-shot are identical per request).
