@@ -1,0 +1,6 @@
+question,correct_answer,num_distractors,difficulty
+What is the capital of Japan?,Tokyo,3,easy
+Who wrote the play 'Hamlet'?,William Shakespeare,4,medium
+What is the chemical symbol for gold?,Au,3,hard
+What is the time complexity of binary search?,O(log n),3,hard
+Which planet is known as the Red Planet?,Mars,3,easy

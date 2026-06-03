@@ -2,12 +2,16 @@
 from contextlib import asynccontextmanager
 
 from anthropic import AsyncAnthropic
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.generator import generate_batch
 from app.models import GenerateRequest, GenerateResponse
+from app.parsing import ParseResult, parse_upload
+
+# Reject uploads larger than this to avoid unbounded memory use.
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 
 settings = get_settings()
 
@@ -62,3 +66,19 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
         )
     results = await generate_batch(client, settings, req.questions)
     return GenerateResponse(results=results)
+
+
+@app.post("/parse", response_model=ParseResult)
+async def parse(file: UploadFile = File(...)) -> ParseResult:
+    """Parse an uploaded CSV/JSON/TSV/TXT file into questions for preview.
+
+    Does not call the LLM — returns the parsed questions and any per-row errors
+    so the frontend can show the user what was understood before generating.
+    """
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (limit {MAX_UPLOAD_BYTES // (1024 * 1024)} MB).",
+        )
+    return parse_upload(file.filename or "", content)

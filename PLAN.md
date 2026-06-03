@@ -20,7 +20,7 @@ options, then assemble `[correct] + distractors`, shuffle server-side, and recor
 - [x] 2. Schemas + prompt (`models.py`, `prompts.py` with few-shot)
 - [x] 3. Core generator (single question vs real API)
 - [x] 4. `/generate` endpoint (batch, concurrency, error handling)
-- [ ] 5. Input parsing (CSV + JSON + paste)
+- [x] 5. Input parsing (CSV + JSON + paste)
 - [ ] 6. Frontend scaffold (Vite+TS+Tailwind+shadcn, talks to `/health`)
 - [ ] 7. Input UI (paste + file upload + options)
 - [ ] 8. Results UI (question cards, highlight correct, regenerate-one)

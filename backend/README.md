@@ -36,6 +36,7 @@ cd backend
 |--------|-------------|------------------------------------------------------|
 | GET    | `/health`   | Liveness + whether an API key is configured.         |
 | POST   | `/generate` | Generate distractors for a batch of questions.       |
+| POST   | `/parse`    | Parse an uploaded CSV/JSON/TSV/TXT file into questions (no LLM). |
 
 ### POST `/generate`
 
