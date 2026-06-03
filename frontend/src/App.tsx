@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { generate, getHealth } from '@/lib/api'
 import type { GeneratedQuestion, HealthResponse, QuestionInput } from '@/types'
 import { InputPanel } from '@/components/InputPanel'
@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/card'
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'sonner'
+import { Loader2 } from 'lucide-react'
 
 function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null)
@@ -24,12 +25,18 @@ function App() {
   const [generatedInputs, setGeneratedInputs] = useState<QuestionInput[]>([])
   const [generating, setGenerating] = useState(false)
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null)
+  const resultsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     getHealth()
       .then(setHealth)
       .catch(() => setHealth(null))
   }, [])
+
+  // Bring fresh results into view once they render.
+  useEffect(() => {
+    if (results) resultsRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [results])
 
   function addQuestions(incoming: QuestionInput[]) {
     setQuestions((prev) => [...prev, ...incoming])
@@ -138,21 +145,58 @@ function App() {
 
         {questions.length > 0 && (
           <div className="sticky bottom-4 flex justify-end">
-            <Button size="lg" onClick={handleGenerate} disabled={generating}>
-              {generating ? 'Generating…' : `Generate ${questions.length} MCQ${questions.length === 1 ? '' : 's'}`}
+            <Button
+              size="lg"
+              onClick={handleGenerate}
+              disabled={generating || keyMissing}
+              className="shadow-lg"
+            >
+              {generating && <Loader2 className="size-4 animate-spin" />}
+              {generating
+                ? 'Generating…'
+                : `Generate ${questions.length} MCQ${questions.length === 1 ? '' : 's'}`}
             </Button>
           </div>
         )}
 
-        {results && (
-          <ResultsList
-            results={results}
-            regeneratingIndex={regeneratingIndex}
-            onRegenerate={handleRegenerate}
-          />
-        )}
+        <div ref={resultsRef} className="scroll-mt-6">
+          {generating && <ResultsSkeleton count={questions.length} />}
+          {!generating && results && (
+            <ResultsList
+              results={results}
+              regeneratingIndex={regeneratingIndex}
+              onRegenerate={handleRegenerate}
+            />
+          )}
+        </div>
       </main>
+
+      <footer className="border-t mt-10">
+        <div className="mx-auto max-w-3xl px-6 py-4 text-xs text-muted-foreground">
+          The answer you provide always stays the correct option — distractors
+          are generated around it and shuffled.
+        </div>
+      </footer>
     </div>
+  )
+}
+
+function ResultsSkeleton({ count }: { count: number }) {
+  const cards = Math.min(count, 4)
+  return (
+    <section className="space-y-4" aria-label="Generating results">
+      <h2 className="text-base font-semibold">Results</h2>
+      {Array.from({ length: cards }).map((_, i) => (
+        <div key={i} className="rounded-xl border p-4 space-y-3">
+          <div className="h-4 w-2/3 rounded bg-muted animate-pulse" />
+          <div className="space-y-2">
+            {Array.from({ length: 4 }).map((_, j) => (
+              <div key={j} className="h-9 rounded-md bg-muted animate-pulse" />
+            ))}
+          </div>
+        </div>
+      ))}
+    </section>
   )
 }
 

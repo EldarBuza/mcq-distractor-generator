@@ -26,7 +26,7 @@ options, then assemble `[correct] + distractors`, shuffle server-side, and recor
 - [x] 8. Results UI (question cards, highlight correct, regenerate-one)
 - [x] 9. Export (CSV + GIFT/Moodle)
 - [x] 10. Dockerize (backend Dockerfile, frontend multi-stage + nginx, docker-compose, .dockerignore)
-- [ ] 11. Polish (loading/error/empty states, rate-limit handling)
+- [x] 11. Polish (loading/error/empty states, rate-limit handling)
 
 ## Defaults (override anytime)
 - Input: paste-in + CSV (`question,correct_answer`) + JSON. `.docx` deferred.
