@@ -21,7 +21,7 @@ options, then assemble `[correct] + distractors`, shuffle server-side, and recor
 - [x] 3. Core generator (single question vs real API)
 - [x] 4. `/generate` endpoint (batch, concurrency, error handling)
 - [x] 5. Input parsing (CSV + JSON + paste)
-- [ ] 6. Frontend scaffold (Vite+TS+Tailwind+shadcn, talks to `/health`)
+- [x] 6. Frontend scaffold (Vite+TS+Tailwind+shadcn, talks to `/health`)
 - [ ] 7. Input UI (paste + file upload + options)
 - [ ] 8. Results UI (question cards, highlight correct, regenerate-one)
 - [ ] 9. Export (CSV; GIFT/Moodle optional)
