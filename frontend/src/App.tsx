@@ -3,6 +3,7 @@ import { generate, getHealth } from '@/lib/api'
 import type { GeneratedQuestion, HealthResponse, QuestionInput } from '@/types'
 import { InputPanel } from '@/components/InputPanel'
 import { QuestionEditorList } from '@/components/QuestionEditorList'
+import { ResultsList } from '@/components/ResultsList'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -18,7 +19,11 @@ function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null)
   const [questions, setQuestions] = useState<QuestionInput[]>([])
   const [results, setResults] = useState<GeneratedQuestion[] | null>(null)
+  // The exact inputs used for the current results, so a single card can be
+  // regenerated with the same question/answer/difficulty/count.
+  const [generatedInputs, setGeneratedInputs] = useState<QuestionInput[]>([])
   const [generating, setGenerating] = useState(false)
+  const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null)
 
   useEffect(() => {
     getHealth()
@@ -54,6 +59,7 @@ function App() {
     try {
       const resp = await generate(valid)
       setResults(resp.results)
+      setGeneratedInputs(valid)
       const failed = resp.results.filter((r) => r.error).length
       if (failed) toast.warning(`${failed} question(s) could not be generated.`)
       else toast.success('Done!')
@@ -61,6 +67,25 @@ function App() {
       toast.error(e instanceof Error ? e.message : String(e))
     } finally {
       setGenerating(false)
+    }
+  }
+
+  async function handleRegenerate(index: number) {
+    const input = generatedInputs[index]
+    if (!input) return
+    setRegeneratingIndex(index)
+    try {
+      const resp = await generate([input])
+      const fresh = resp.results[0]
+      setResults((prev) =>
+        prev ? prev.map((r, i) => (i === index ? fresh : r)) : prev,
+      )
+      if (fresh.error) toast.warning('Could not regenerate that question.')
+      else toast.success('Regenerated.')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setRegeneratingIndex(null)
     }
   }
 
@@ -119,34 +144,12 @@ function App() {
           </div>
         )}
 
-        {/* Minimal results view — replaced by a polished component in Step 8. */}
         {results && (
-          <section className="space-y-3">
-            <h2 className="text-base font-semibold">Results</h2>
-            {results.map((r, i) => (
-              <div key={i} className="rounded-lg border p-4 space-y-2 bg-card">
-                <p className="font-medium">{r.question}</p>
-                {r.error ? (
-                  <p className="text-sm text-destructive">Error: {r.error}</p>
-                ) : (
-                  <ol className="list-[upper-alpha] pl-6 space-y-1 text-sm">
-                    {r.options.map((opt, j) => (
-                      <li
-                        key={j}
-                        className={
-                          j === r.correct_index
-                            ? 'font-semibold text-green-600 dark:text-green-400'
-                            : ''
-                        }
-                      >
-                        {opt}
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </div>
-            ))}
-          </section>
+          <ResultsList
+            results={results}
+            regeneratingIndex={regeneratingIndex}
+            onRegenerate={handleRegenerate}
+          />
         )}
       </main>
     </div>
