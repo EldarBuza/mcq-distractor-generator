@@ -3,6 +3,7 @@
 The correct answer is added to the option list HERE, in code — never by the
 model — so the user's answer is guaranteed to survive verbatim.
 """
+import asyncio
 import random
 
 from anthropic import AsyncAnthropic
@@ -18,6 +19,10 @@ from app.prompts import (
 )
 
 MAX_TOKENS = 1024
+
+# Cap concurrent in-flight requests to the Anthropic API per batch, so a large
+# upload doesn't trip rate limits.
+MAX_CONCURRENCY = 8
 
 
 def _norm(s: str) -> str:
@@ -126,3 +131,23 @@ async def generate_one(
             difficulty=q.difficulty,
             error=f"{type(exc).__name__}: {exc}",
         )
+
+
+async def generate_batch(
+    client: AsyncAnthropic,
+    settings: Settings,
+    questions: list[QuestionInput],
+) -> list[GeneratedQuestion]:
+    """Generate distractors for many questions concurrently, order preserved.
+
+    Concurrency is bounded by a semaphore so large batches don't trip API rate
+    limits. Per-question failures are captured inside generate_one and never
+    raise, so the returned list always lines up 1:1 with the input.
+    """
+    sem = asyncio.Semaphore(MAX_CONCURRENCY)
+
+    async def _bounded(q: QuestionInput) -> GeneratedQuestion:
+        async with sem:
+            return await generate_one(client, settings, q)
+
+    return await asyncio.gather(*(_bounded(q) for q in questions))

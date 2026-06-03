@@ -32,6 +32,25 @@ cd backend
 
 ## Endpoints
 
-| Method | Path      | Description                                   |
-|--------|-----------|-----------------------------------------------|
-| GET    | `/health` | Liveness + whether an API key is configured.  |
+| Method | Path        | Description                                          |
+|--------|-------------|------------------------------------------------------|
+| GET    | `/health`   | Liveness + whether an API key is configured.         |
+| POST   | `/generate` | Generate distractors for a batch of questions.       |
+
+### POST `/generate`
+
+Request:
+
+```jsonc
+{
+  "questions": [
+    { "question": "Capital of Japan?", "correct_answer": "Tokyo",
+      "num_distractors": 3, "difficulty": "easy" }
+  ]
+}
+```
+
+Response: `{ "results": [ { question, correct_answer, options, correct_index,
+distractors, rationale, difficulty, error } ] }`. Results line up 1:1 with the
+input order. A per-question failure sets `error` instead of failing the batch.
+Returns `503` if no API key is configured on the server.
