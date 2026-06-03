@@ -17,7 +17,7 @@ options, then assemble `[correct] + distractors`, shuffle server-side, and recor
 
 ## Build order
 - [x] 1. Backend skeleton (FastAPI app, config, `/health`, venv + deps)
-- [ ] 2. Schemas + prompt (`models.py`, `prompts.py` with few-shot)
+- [x] 2. Schemas + prompt (`models.py`, `prompts.py` with few-shot)
 - [ ] 3. Core generator (single question vs real API)
 - [ ] 4. `/generate` endpoint (batch, concurrency, error handling)
 - [ ] 5. Input parsing (CSV + JSON + paste)
