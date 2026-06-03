@@ -2,8 +2,9 @@ import type { GeneratedQuestion } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { Check, RefreshCw } from 'lucide-react'
+import { Check, Download, RefreshCw } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { exportCsv, exportGift } from '@/lib/export'
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F']
 
@@ -34,9 +35,33 @@ export function ResultsList({
   regeneratingIndex,
   onRegenerate,
 }: Props) {
+  const exportable = results.filter((r) => !r.error && r.options.length > 1).length
+
   return (
     <section className="space-y-4">
-      <h2 className="text-base font-semibold">Results</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-base font-semibold">Results</h2>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={exportable === 0}
+            onClick={() => exportCsv(results)}
+          >
+            <Download className="size-3.5" />
+            CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={exportable === 0}
+            onClick={() => exportGift(results)}
+          >
+            <Download className="size-3.5" />
+            GIFT (Moodle)
+          </Button>
+        </div>
+      </div>
       {results.map((r, i) => (
         <Card key={i}>
           <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
