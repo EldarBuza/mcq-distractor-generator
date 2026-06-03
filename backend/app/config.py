@@ -1,12 +1,17 @@
 """Application settings, loaded from environment / .env file."""
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# backend/.env — resolved absolutely so settings load regardless of the CWD
+# the process was launched from (repo root, backend/, or a container).
+_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )
