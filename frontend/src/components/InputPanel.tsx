@@ -2,6 +2,8 @@ import { useRef, useState } from 'react'
 import { parseFile, parseText } from '@/lib/api'
 import type { QuestionInput } from '@/types'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Upload } from 'lucide-react'
@@ -19,9 +21,27 @@ Who wrote 'Hamlet'? | William Shakespeare
 You can also paste CSV (question,correct_answer) or JSON.`
 
 export function InputPanel({ onAdd, onError }: Props) {
+  const [question, setQuestion] = useState('')
+  const [answer, setAnswer] = useState('')
   const [text, setText] = useState('')
   const [parsing, setParsing] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const questionRef = useRef<HTMLInputElement>(null)
+
+  function handleAddSingle() {
+    if (!question.trim() || !answer.trim()) return
+    onAdd([
+      {
+        question: question.trim(),
+        correct_answer: answer.trim(),
+        num_distractors: 3,
+        difficulty: 'medium',
+      },
+    ])
+    setQuestion('')
+    setAnswer('')
+    questionRef.current?.focus()
+  }
 
   function report(result: { questions: QuestionInput[]; errors: string[] }) {
     if (result.errors.length) {
@@ -61,11 +81,47 @@ export function InputPanel({ onAdd, onError }: Props) {
   }
 
   return (
-    <Tabs defaultValue="paste" className="w-full">
+    <Tabs defaultValue="single" className="w-full">
       <TabsList>
-        <TabsTrigger value="paste">Paste</TabsTrigger>
+        <TabsTrigger value="single">One at a time</TabsTrigger>
+        <TabsTrigger value="paste">Bulk paste</TabsTrigger>
         <TabsTrigger value="upload">Upload file</TabsTrigger>
       </TabsList>
+
+      <TabsContent value="single" className="space-y-3">
+        <div className="space-y-1">
+          <Label htmlFor="single-question" className="text-xs text-muted-foreground">
+            Question
+          </Label>
+          <Input
+            id="single-question"
+            ref={questionRef}
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder="What is the capital of Japan?"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label htmlFor="single-answer" className="text-xs text-muted-foreground">
+            Correct answer
+          </Label>
+          <Input
+            id="single-answer"
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                handleAddSingle()
+              }
+            }}
+            placeholder="Tokyo"
+          />
+        </div>
+        <Button onClick={handleAddSingle} disabled={!question.trim() || !answer.trim()}>
+          Add question
+        </Button>
+      </TabsContent>
 
       <TabsContent value="paste" className="space-y-3">
         <Textarea
