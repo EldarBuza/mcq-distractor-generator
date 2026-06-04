@@ -44,6 +44,21 @@ class GenerateRequest(BaseModel):
     check_answer: bool = False
 
 
+class GenerateQuestionsRequest(BaseModel):
+    """Generate question + correct-answer pairs from a block of source text."""
+
+    text: str = Field(..., min_length=1, max_length=20_000)
+    count: int = Field(default=5, ge=1, le=20)
+    difficulty: Difficulty = Difficulty.medium
+
+
+class QuestionsResponse(BaseModel):
+    """The question + answer pairs drafted from source text, ready to edit and
+    feed into distractor generation."""
+
+    questions: list[QuestionInput] = Field(default_factory=list)
+
+
 class KeptDistractor(BaseModel):
     """A distractor the user locked, carried through a partial regeneration so
     its text and rationale survive verbatim."""
@@ -100,6 +115,19 @@ class AnswerCheck(BaseModel):
     # Short explanation when ok is False (why the answer looks wrong); may also
     # carry a brief confirmation when ok is True.
     note: str = ""
+
+
+class QuestionDraft(BaseModel):
+    """One question + correct-answer pair drafted from source text (no options)."""
+
+    question: str
+    answer: str
+
+
+class QuestionDraftSet(BaseModel):
+    """The structured shape the question-from-text pass returns."""
+
+    questions: list[QuestionDraft] = Field(default_factory=list)
 
 
 # ---- Outbound ---------------------------------------------------------------
