@@ -10,6 +10,7 @@ function q(overrides: Partial<GeneratedQuestion> = {}): GeneratedQuestion {
     correct_index: 1,
     distractors: ['Kyoto', 'Osaka'],
     rationale: [],
+    misconceptions: [],
     difficulty: 'medium',
     error: null,
     verified: false,

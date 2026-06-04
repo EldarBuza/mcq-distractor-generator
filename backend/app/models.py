@@ -65,6 +65,7 @@ class KeptDistractor(BaseModel):
 
     text: str = Field(..., min_length=1, max_length=1000)
     rationale: str = ""
+    misconception: str = ""
 
 
 class RegenerateRequest(BaseModel):
@@ -89,6 +90,9 @@ class DistractorSet(BaseModel):
 
     distractors: list[str] = Field(..., min_length=1, max_length=5)
     rationale: list[str] = Field(default_factory=list)
+    # Short label per distractor naming the specific misconception it targets,
+    # parallel to `distractors` (e.g. "Confuses historical and current capital").
+    misconceptions: list[str] = Field(default_factory=list)
 
 
 class DistractorVerdict(BaseModel):
@@ -142,6 +146,8 @@ class GeneratedQuestion(BaseModel):
     correct_index: int
     distractors: list[str]
     rationale: list[str] = Field(default_factory=list)
+    # Short misconception label per distractor, parallel to `distractors`.
+    misconceptions: list[str] = Field(default_factory=list)
     difficulty: Difficulty
     error: str | None = None
     # True when the distractors passed through the optional verification pass.

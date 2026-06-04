@@ -41,7 +41,7 @@ def test_batch_requires_at_least_one():
 
 def test_tool_schema_excludes_correct_answer():
     props = DISTRACTOR_TOOL["input_schema"]["properties"]
-    assert set(props) == {"distractors", "rationale"}
+    assert set(props) == {"distractors", "rationale", "misconceptions"}
     assert "correct_answer" not in props
     assert TOOL_NAME == "submit_distractors"
 

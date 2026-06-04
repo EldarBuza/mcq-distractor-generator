@@ -103,6 +103,7 @@ export function toJson(results: GeneratedQuestion[]): string {
     correct_index: r.correct_index,
     difficulty: r.difficulty,
     rationale: r.rationale,
+    misconceptions: r.misconceptions,
   }))
   return JSON.stringify(items, null, 2)
 }

@@ -10,12 +10,16 @@ from app.models import KeptDistractor, QuestionInput
 SETTINGS = Settings(anthropic_api_key="test", anthropic_model="test-model")
 
 
-def _fake_message(distractors, rationale=None):
+def _fake_message(distractors, rationale=None, misconceptions=None):
     """Build an object shaped like an Anthropic message with one tool_use block."""
     block = SimpleNamespace(
         type="tool_use",
         name="submit_distractors",
-        input={"distractors": distractors, "rationale": rationale or []},
+        input={
+            "distractors": distractors,
+            "rationale": rationale or [],
+            "misconceptions": misconceptions or [],
+        },
     )
     return SimpleNamespace(content=[block])
 
@@ -131,6 +135,26 @@ async def test_generate_one_happy_path():
     assert "Canberra" in result.options
     assert result.options[result.correct_index] == "Canberra"
     assert set(result.distractors) == {"Sydney", "Melbourne", "Perth"}
+
+
+@pytest.mark.asyncio
+async def test_generate_one_carries_misconceptions():
+    client = FakeClient([
+        _fake_message(
+            ["Sydney", "Melbourne", "Perth"],
+            ["r1", "r2", "r3"],
+            ["Largest-city bias", "Former capital", "Distant city"],
+        )
+    ])
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=3)
+    result = await generate_one(client, SETTINGS, q)
+
+    assert result.error is None
+    assert len(result.misconceptions) == 3
+    # Misconception label stays paired with its distractor.
+    si = result.distractors.index("Melbourne")
+    assert result.misconceptions[si] == "Former capital"
 
 
 @pytest.mark.asyncio
@@ -253,6 +277,22 @@ async def test_regenerate_keeps_locked_and_fills_the_rest():
     si = result.distractors.index("Sydney")
     assert result.rationale[si] == "biggest city"
     assert client.messages.calls == 1  # asked for only the one missing distractor
+
+
+@pytest.mark.asyncio
+async def test_regenerate_preserves_kept_misconception():
+    client = FakeClient([
+        _fake_message(["Darwin"], ["r"], ["Distant city"])
+    ])
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=2)
+    keep = [KeptDistractor(text="Melbourne", rationale="was capital",
+                           misconception="Former capital")]
+    result = await regenerate_partial(client, SETTINGS, q, keep)
+
+    assert result.error is None
+    mi = result.distractors.index("Melbourne")
+    assert result.misconceptions[mi] == "Former capital"
 
 
 @pytest.mark.asyncio

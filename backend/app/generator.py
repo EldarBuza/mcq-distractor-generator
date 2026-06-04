@@ -183,19 +183,22 @@ async def _verify_distractors(
     q: QuestionInput,
     distractors: list[str],
     rationale: list[str],
-) -> tuple[list[str], list[str]]:
+    misconceptions: list[str],
+) -> tuple[list[str], list[str], list[str]]:
     """Run the review pass; keep only distractors judged ok, filtering rationale
-    in lockstep. Missing/short verdicts default to KEEP, so a malformed review
-    never silently empties an otherwise-good set."""
+    and misconceptions in lockstep. Missing/short verdicts default to KEEP, so a
+    malformed review never silently empties an otherwise-good set."""
     review = await _review_model(client, settings, q, distractors)
     kept_d: list[str] = []
     kept_r: list[str] = []
+    kept_m: list[str] = []
     for i, d in enumerate(distractors):
         verdict = review.verdicts[i] if i < len(review.verdicts) else None
         if verdict is None or verdict.ok:
             kept_d.append(d)
             kept_r.append(rationale[i] if i < len(rationale) else "")
-    return kept_d, kept_r
+            kept_m.append(misconceptions[i] if i < len(misconceptions) else "")
+    return kept_d, kept_r, kept_m
 
 
 async def _replenish_verified(
@@ -204,7 +207,8 @@ async def _replenish_verified(
     q: QuestionInput,
     distractors: list[str],
     rationale: list[str],
-) -> tuple[list[str], list[str]]:
+    misconceptions: list[str],
+) -> tuple[list[str], list[str], list[str]]:
     """One attempt to top up a verified set that fell short: generate fresh
     candidates, drop ones we already kept, verify them, and append the keepers
     up to the requested count."""
@@ -219,11 +223,16 @@ async def _replenish_verified(
         if _norm(d) not in have
     ][:need]
     if not candidates:
-        return distractors, rationale
-    new_d, new_r = await _verify_distractors(
-        client, settings, q, candidates, fresh.rationale[: len(candidates)]
+        return distractors, rationale, misconceptions
+    new_d, new_r, new_m = await _verify_distractors(
+        client,
+        settings,
+        q,
+        candidates,
+        fresh.rationale[: len(candidates)],
+        fresh.misconceptions[: len(candidates)],
     )
-    return distractors + new_d, rationale + new_r
+    return distractors + new_d, rationale + new_r, misconceptions + new_m
 
 
 async def generate_one(
@@ -268,18 +277,20 @@ async def generate_one(
         if not distractors:
             raise ValueError("no usable distractors after cleaning")
 
-        # Pair rationale to surviving distractors by best-effort index alignment.
+        # Pair rationale and misconceptions to surviving distractors by
+        # best-effort index alignment.
         rationale = result.rationale[: len(distractors)]
+        misconceptions = result.misconceptions[: len(distractors)]
 
         # Optional second pass: critique and drop weak distractors, then top up
         # once if verification left us short of the requested count.
         if verify:
-            distractors, rationale = await _verify_distractors(
-                client, settings, q, distractors, rationale
+            distractors, rationale, misconceptions = await _verify_distractors(
+                client, settings, q, distractors, rationale, misconceptions
             )
             if 0 < len(distractors) < q.num_distractors:
-                distractors, rationale = await _replenish_verified(
-                    client, settings, q, distractors, rationale
+                distractors, rationale, misconceptions = await _replenish_verified(
+                    client, settings, q, distractors, rationale, misconceptions
                 )
             if not distractors:
                 raise ValueError("no distractors survived verification")
@@ -295,6 +306,7 @@ async def generate_one(
             correct_index=correct_index,
             distractors=distractors,
             rationale=rationale,
+            misconceptions=misconceptions,
             difficulty=q.difficulty,
             verified=verify,
             answer_check=(await check_task) if check_task else None,
@@ -315,13 +327,15 @@ async def generate_one(
 
 def _sanitize_kept(
     keep: list[KeptDistractor], q: QuestionInput
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], list[str]]:
     """Drop kept distractors that are blank, equal to the correct answer, or
-    duplicates, capped at the requested count. Returns (texts, rationales)."""
+    duplicates, capped at the requested count. Returns parallel lists of
+    (texts, rationales, misconceptions)."""
     correct_n = _norm(q.correct_answer)
     seen: set[str] = set()
     texts: list[str] = []
     rationales: list[str] = []
+    misconceptions: list[str] = []
     for k in keep:
         text = k.text.strip()
         if not text:
@@ -332,9 +346,10 @@ def _sanitize_kept(
         seen.add(n)
         texts.append(text)
         rationales.append(k.rationale or "")
+        misconceptions.append(k.misconception or "")
         if len(texts) >= q.num_distractors:
             break
-    return texts, rationales
+    return texts, rationales, misconceptions
 
 
 async def regenerate_partial(
@@ -352,11 +367,12 @@ async def regenerate_partial(
     `error` field rather than raised.
     """
     try:
-        kept_texts, kept_rationale = _sanitize_kept(keep, q)
+        kept_texts, kept_rationale, kept_misconceptions = _sanitize_kept(keep, q)
         need = q.num_distractors - len(kept_texts)
 
         new_d: list[str] = []
         new_r: list[str] = []
+        new_m: list[str] = []
         if need > 0:
             avoid = list(kept_texts)
             result = await _call_model_regen(client, settings, q, need, avoid)
@@ -369,6 +385,7 @@ async def regenerate_partial(
                 if _norm(d) not in avoid_n
             ][:need]
             new_r = result.rationale[: len(new_d)]
+            new_m = result.misconceptions[: len(new_d)]
 
             # One top-up attempt if cleaning/avoidance left us short.
             if len(new_d) < need:
@@ -385,14 +402,16 @@ async def regenerate_partial(
                 ][: need - len(new_d)]
                 new_d += extra
                 new_r += retry.rationale[: len(extra)]
+                new_m += retry.misconceptions[: len(extra)]
 
             if verify and new_d:
-                new_d, new_r = await _verify_distractors(
-                    client, settings, q, new_d, new_r
+                new_d, new_r, new_m = await _verify_distractors(
+                    client, settings, q, new_d, new_r, new_m
                 )
 
         distractors = kept_texts + new_d
         rationale = kept_rationale + new_r
+        misconceptions = kept_misconceptions + new_m
         if not distractors:
             raise ValueError("no usable distractors after regeneration")
 
@@ -407,6 +426,7 @@ async def regenerate_partial(
             correct_index=correct_index,
             distractors=distractors,
             rationale=rationale,
+            misconceptions=misconceptions,
             difficulty=q.difficulty,
             verified=verify,
         )
