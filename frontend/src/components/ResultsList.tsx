@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { exportAiken, exportCsv, exportGift, exportJson } from '@/lib/export'
+import { detectIssues } from '@/lib/quality'
 
 const EXPORTS: { label: string; run: (r: GeneratedQuestion[]) => void }[] = [
   { label: 'CSV (spreadsheet)', run: exportCsv },
@@ -108,7 +109,10 @@ export function ResultsList({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {results.map((r, i) => (
+      {results.map((r, i) => {
+        const issues = detectIssues(r)
+        const issueFor = (j: number) => issues.find((it) => it.index === j)
+        return (
         <Card key={i}>
           <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
             <div className="space-y-1">
@@ -123,6 +127,15 @@ export function ResultsList({
                   <Badge variant="secondary" className="gap-1">
                     <ShieldCheck className="size-3" />
                     Verified
+                  </Badge>
+                )}
+                {issues.length > 0 && (
+                  <Badge
+                    variant="outline"
+                    className="gap-1 border-amber-500/50 text-amber-700 dark:text-amber-500"
+                  >
+                    <AlertTriangle className="size-3" />
+                    {issues.length} possible issue{issues.length === 1 ? '' : 's'}
                   </Badge>
                 )}
               </div>
@@ -164,6 +177,7 @@ export function ResultsList({
                   const isCorrect = j === r.correct_index
                   const why = isCorrect ? null : rationaleFor(r, opt)
                   const kept = !isCorrect && isLocked(i, opt)
+                  const issue = isCorrect ? undefined : issueFor(j)
                   return (
                     <li
                       key={j}
@@ -200,6 +214,12 @@ export function ResultsList({
                         {why && (
                           <p className="text-xs text-muted-foreground">{why}</p>
                         )}
+                        {issue && (
+                          <p className="flex items-center gap-1 text-xs text-amber-600">
+                            <AlertTriangle className="size-3 shrink-0" />
+                            {issue.message}
+                          </p>
+                        )}
                       </div>
                       {!isCorrect && (
                         <Button
@@ -234,7 +254,8 @@ export function ResultsList({
             )}
           </CardContent>
         </Card>
-      ))}
+        )
+      })}
     </section>
   )
 }
