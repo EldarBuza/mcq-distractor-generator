@@ -3,9 +3,19 @@ import type { GeneratedQuestion } from '@/types'
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F']
 
+/** The option label for index i: A, B, C, … and beyond F if ever needed. */
+function letter(i: number): string {
+  return LETTERS[i] ?? String.fromCharCode(65 + i)
+}
+
 function usable(results: GeneratedQuestion[]): GeneratedQuestion[] {
   // Exclude questions that failed to generate (only the correct answer present).
   return results.filter((r) => !r.error && r.options.length > 1)
+}
+
+/** Collapse internal line breaks to single spaces (for one-line-per-field formats). */
+function oneLine(value: string): string {
+  return value.replace(/\s*[\r\n]+\s*/g, ' ').trim()
 }
 
 // ---- CSV --------------------------------------------------------------------
@@ -65,6 +75,38 @@ export function toGift(results: GeneratedQuestion[]): string {
     .join('\n\n')
 }
 
+// ---- Aiken ------------------------------------------------------------------
+
+// Aiken is a plain-text MCQ format importable by Moodle and many other tools.
+// Each question is a single line, followed by "A. option" lines and an
+// "ANSWER: <LETTER>" line. The format has no escaping, and questions/options
+// must each fit on one line — so internal line breaks are collapsed.
+export function toAiken(results: GeneratedQuestion[]): string {
+  return usable(results)
+    .map((r) => {
+      const lines = [oneLine(r.question)]
+      r.options.forEach((opt, j) => lines.push(`${letter(j)}. ${oneLine(opt)}`))
+      lines.push(`ANSWER: ${letter(r.correct_index)}`)
+      return lines.join('\n')
+    })
+    .join('\n\n')
+}
+
+// ---- JSON -------------------------------------------------------------------
+
+/** A clean, re-importable projection of each MCQ (drops transient fields). */
+export function toJson(results: GeneratedQuestion[]): string {
+  const items = usable(results).map((r) => ({
+    question: r.question,
+    options: r.options,
+    correct_answer: r.correct_answer,
+    correct_index: r.correct_index,
+    difficulty: r.difficulty,
+    rationale: r.rationale,
+  }))
+  return JSON.stringify(items, null, 2)
+}
+
 // ---- download helper --------------------------------------------------------
 
 export function downloadText(
@@ -89,4 +131,12 @@ export function exportCsv(results: GeneratedQuestion[]): void {
 
 export function exportGift(results: GeneratedQuestion[]): void {
   downloadText('mcqs.gift.txt', toGift(results), 'text/plain')
+}
+
+export function exportAiken(results: GeneratedQuestion[]): void {
+  downloadText('mcqs.aiken.txt', toAiken(results), 'text/plain')
+}
+
+export function exportJson(results: GeneratedQuestion[]): void {
+  downloadText('mcqs.json', toJson(results), 'application/json')
 }

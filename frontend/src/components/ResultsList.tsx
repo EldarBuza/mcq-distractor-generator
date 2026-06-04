@@ -2,9 +2,22 @@ import type { GeneratedQuestion } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { Check, Download, RefreshCw, ShieldCheck } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Check, ChevronDown, Download, RefreshCw, ShieldCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { exportCsv, exportGift } from '@/lib/export'
+import { exportAiken, exportCsv, exportGift, exportJson } from '@/lib/export'
+
+const EXPORTS: { label: string; run: (r: GeneratedQuestion[]) => void }[] = [
+  { label: 'CSV (spreadsheet)', run: exportCsv },
+  { label: 'GIFT (Moodle)', run: exportGift },
+  { label: 'Aiken (LMS import)', run: exportAiken },
+  { label: 'JSON', run: exportJson },
+]
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F']
 
@@ -41,26 +54,22 @@ export function ResultsList({
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-base font-semibold">Results</h2>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={exportable === 0}
-            onClick={() => exportCsv(results)}
-          >
-            <Download className="size-3.5" />
-            CSV
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={exportable === 0}
-            onClick={() => exportGift(results)}
-          >
-            <Download className="size-3.5" />
-            GIFT (Moodle)
-          </Button>
-        </div>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" disabled={exportable === 0}>
+              <Download className="size-3.5" />
+              Export
+              <ChevronDown className="size-3.5 opacity-60" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            {EXPORTS.map(({ label, run }) => (
+              <DropdownMenuItem key={label} onSelect={() => run(results)}>
+                {label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {results.map((r, i) => (
         <Card key={i}>
