@@ -47,19 +47,19 @@ interface Props {
   onRegenerate: (index: number, keep: KeptDistractor[]) => void
 }
 
-/** Map each option to the rationale of its distractor (correct answer has none). */
+/** Map each option to the rationale of its distractor (correct answer has none).
+ * Tolerates results missing the field (older data / partial responses). */
 function rationaleFor(r: GeneratedQuestion, option: string): string | null {
   const di = r.distractors.indexOf(option)
   if (di === -1) return null
-  return r.rationale[di] ?? null
+  return r.rationale?.[di] ?? null
 }
 
 /** The misconception label for a distractor option, if any. */
 function misconceptionFor(r: GeneratedQuestion, option: string): string | null {
   const di = r.distractors.indexOf(option)
   if (di === -1) return null
-  const m = r.misconceptions[di]
-  return m ? m : null
+  return r.misconceptions?.[di] || null
 }
 
 export function ResultsList({
