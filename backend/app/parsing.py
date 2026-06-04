@@ -180,13 +180,26 @@ def parse_text(text: str, fmt: str = "auto") -> ParseResult:
 
 
 def parse_upload(filename: str, content: bytes) -> ParseResult:
-    """Dispatch by file extension to the right parser."""
+    """Dispatch by file extension to the right parser.
+
+    .docx and .pdf are binary: their text is extracted first, then run through
+    the same auto-detecting text parser (so a document containing 'q | a' lines,
+    a CSV-style block, JSON, or a two-column Q/A table is understood).
+    """
+    name = (filename or "").lower()
+
+    if name.endswith(".docx"):
+        text, err = _extract_docx(content)
+        return ParseResult(questions=[], errors=[err]) if err else parse_text(text)
+    if name.endswith(".pdf"):
+        text, err = _extract_pdf(content)
+        return ParseResult(questions=[], errors=[err]) if err else parse_text(text)
+
     try:
         text = content.decode("utf-8-sig")  # tolerate a BOM
     except UnicodeDecodeError:
         return ParseResult(questions=[], errors=["File is not valid UTF-8 text."])
 
-    name = (filename or "").lower()
     if name.endswith(".json"):
         return parse_json(text)
     if name.endswith(".csv") or name.endswith(".tsv") or name.endswith(".txt"):
@@ -196,6 +209,47 @@ def parse_upload(filename: str, content: bytes) -> ParseResult:
     if stripped.startswith("[") or stripped.startswith("{"):
         return parse_json(text)
     return parse_csv(text)
+
+
+def _extract_docx(content: bytes) -> tuple[str, str | None]:
+    """Extract text from a .docx. Paragraphs become lines; each table row becomes
+    a '|'-joined line so a two-column Question/Answer table parses directly.
+    Returns (text, error)."""
+    try:
+        from docx import Document
+    except ImportError:  # pragma: no cover - dependency is in requirements
+        return "", "Reading .docx files requires the python-docx package."
+    try:
+        doc = Document(io.BytesIO(content))
+    except Exception as exc:  # noqa: BLE001 - surface a clean message to the user
+        return "", f"Could not read .docx file: {_short(exc)}"
+
+    lines = [p.text for p in doc.paragraphs if p.text.strip()]
+    for table in doc.tables:
+        for row in table.rows:
+            cells = [c.text.strip() for c in row.cells]
+            if any(cells):
+                lines.append(" | ".join(cells))
+    return "\n".join(lines), None
+
+
+def _extract_pdf(content: bytes) -> tuple[str, str | None]:
+    """Extract text from a .pdf, page by page. Returns (text, error)."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:  # pragma: no cover - dependency is in requirements
+        return "", "Reading .pdf files requires the pypdf package."
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    except Exception as exc:  # noqa: BLE001 - surface a clean message to the user
+        return "", f"Could not read .pdf file: {_short(exc)}"
+    if not text.strip():
+        return "", (
+            "No text found in the PDF (it may be scanned images rather than "
+            "selectable text)."
+        )
+    return text, None
 
 
 # ---- helpers ----------------------------------------------------------------
