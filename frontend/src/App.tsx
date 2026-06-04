@@ -4,9 +4,11 @@ import type { GeneratedQuestion, HealthResponse, QuestionInput } from '@/types'
 import { InputPanel } from '@/components/InputPanel'
 import { QuestionEditorList } from '@/components/QuestionEditorList'
 import { ResultsList } from '@/components/ResultsList'
+import { QuizView } from '@/components/QuizView'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Card,
   CardContent,
@@ -16,18 +18,31 @@ import {
 import { Toaster } from '@/components/ui/sonner'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
+import { usePersistentState } from '@/lib/usePersistentState'
+
+type ResultsView = 'key' | 'quiz'
 
 function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null)
-  const [questions, setQuestions] = useState<QuestionInput[]>([])
-  const [results, setResults] = useState<GeneratedQuestion[] | null>(null)
+  // Persisted across reloads so a refresh never discards in-progress work.
+  const [questions, setQuestions] = usePersistentState<QuestionInput[]>(
+    'mcq.questions',
+    [],
+  )
+  const [results, setResults] = usePersistentState<GeneratedQuestion[] | null>(
+    'mcq.results',
+    null,
+  )
   // The exact inputs used for the current results, so a single card can be
   // regenerated with the same question/answer/difficulty/count.
-  const [generatedInputs, setGeneratedInputs] = useState<QuestionInput[]>([])
+  const [generatedInputs, setGeneratedInputs] = usePersistentState<
+    QuestionInput[]
+  >('mcq.generatedInputs', [])
+  // Optional second LLM pass that critiques and prunes weak distractors.
+  const [verify, setVerify] = usePersistentState('mcq.verify', false)
   const [generating, setGenerating] = useState(false)
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null)
-  // Optional second LLM pass that critiques and prunes weak distractors.
-  const [verify, setVerify] = useState(false)
+  const [resultsView, setResultsView] = useState<ResultsView>('key')
   const resultsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -36,8 +51,15 @@ function App() {
       .catch(() => setHealth(null))
   }, [])
 
-  // Bring fresh results into view once they render.
+  // Bring fresh results into view once they render — but not on the initial
+  // mount, where results may have just been restored from localStorage and an
+  // auto-scroll would be jarring.
+  const didMount = useRef(false)
   useEffect(() => {
+    if (!didMount.current) {
+      didMount.current = true
+      return
+    }
     if (results) resultsRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [results])
 
@@ -175,14 +197,31 @@ function App() {
           </div>
         )}
 
-        <div ref={resultsRef} className="scroll-mt-6">
+        <div ref={resultsRef} className="scroll-mt-6 space-y-4">
           {generating && <ResultsSkeleton count={questions.length} />}
-          {!generating && results && (
-            <ResultsList
-              results={results}
-              regeneratingIndex={regeneratingIndex}
-              onRegenerate={handleRegenerate}
-            />
+          {!generating && results && results.length > 0 && (
+            <>
+              <div className="flex justify-end">
+                <Tabs
+                  value={resultsView}
+                  onValueChange={(v) => setResultsView(v as ResultsView)}
+                >
+                  <TabsList>
+                    <TabsTrigger value="key">Answer key</TabsTrigger>
+                    <TabsTrigger value="quiz">Take quiz</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+              {resultsView === 'key' ? (
+                <ResultsList
+                  results={results}
+                  regeneratingIndex={regeneratingIndex}
+                  onRegenerate={handleRegenerate}
+                />
+              ) : (
+                <QuizView results={results} />
+              )}
+            </>
           )}
         </div>
       </main>

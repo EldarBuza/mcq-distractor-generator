@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { toCsv, toGift } from './export'
+import { toAiken, toCsv, toGift, toJson } from './export'
 import type { GeneratedQuestion } from '@/types'
 
 function q(overrides: Partial<GeneratedQuestion> = {}): GeneratedQuestion {
@@ -65,5 +65,53 @@ describe('toGift', () => {
     ])
     expect(gift).toContain('What is \\{x\\}?')
     expect(gift).toContain('~a\\=b')
+  })
+})
+
+describe('toAiken', () => {
+  it('emits the question, lettered options, and an ANSWER line', () => {
+    const aiken = toAiken([q()])
+    expect(aiken).toBe(
+      ['Capital of France?', 'A. London', 'B. Paris', 'C. Rome', 'ANSWER: B'].join(
+        '\n',
+      ),
+    )
+  })
+
+  it('separates questions with a blank line', () => {
+    const aiken = toAiken([q(), q({ question: 'Second?' })])
+    expect(aiken).toContain('ANSWER: B\n\nSecond?')
+  })
+
+  it('collapses internal line breaks so each field stays on one line', () => {
+    const aiken = toAiken([q({ question: 'Line one\nline two' })])
+    expect(aiken.split('\n')[0]).toBe('Line one line two')
+  })
+
+  it('excludes errored questions', () => {
+    expect(toAiken([q({ error: 'boom', options: ['Paris'] })])).toBe('')
+  })
+})
+
+describe('toJson', () => {
+  it('emits a re-importable projection without transient fields', () => {
+    const data = JSON.parse(toJson([q()]))
+    expect(data).toHaveLength(1)
+    expect(data[0]).toEqual({
+      question: 'Capital of France?',
+      options: ['London', 'Paris', 'Rome'],
+      correct_answer: 'Paris',
+      correct_index: 1,
+      difficulty: 'medium',
+      rationale: [],
+    })
+    expect(data[0]).not.toHaveProperty('error')
+    expect(data[0]).not.toHaveProperty('verified')
+  })
+
+  it('excludes errored questions', () => {
+    expect(JSON.parse(toJson([q({ error: 'boom', options: ['Paris'] })]))).toEqual(
+      [],
+    )
   })
 })
