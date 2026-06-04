@@ -5,9 +5,14 @@ from anthropic import AsyncAnthropic
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.batches import create_batch, poll_batch
 from app.config import get_settings
 from app.generator import generate_batch, regenerate_partial
 from app.models import (
+    BatchCreateRequest,
+    BatchCreateResponse,
+    BatchStatusRequest,
+    BatchStatusResponse,
     GeneratedQuestion,
     GenerateQuestionsRequest,
     GenerateRequest,
@@ -95,6 +100,43 @@ async def regenerate(req: RegenerateRequest) -> GeneratedQuestion:
     return await regenerate_partial(
         client, settings, req.question, req.keep, verify=req.verify
     )
+
+
+@app.post("/batch", response_model=BatchCreateResponse)
+async def batch_create(req: BatchCreateRequest) -> BatchCreateResponse:
+    """Submit a large set for asynchronous, ~50%-cheaper batch generation."""
+    client = app.state.anthropic
+    if client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ANTHROPIC_API_KEY is not configured on the server.",
+        )
+    try:
+        batch_id = await create_batch(client, settings, req.questions)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not create batch: {type(exc).__name__}",
+        ) from exc
+    return BatchCreateResponse(batch_id=batch_id, count=len(req.questions))
+
+
+@app.post("/batch-status", response_model=BatchStatusResponse)
+async def batch_status(req: BatchStatusRequest) -> BatchStatusResponse:
+    """Poll a batch; returns assembled results once it has ended."""
+    client = app.state.anthropic
+    if client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ANTHROPIC_API_KEY is not configured on the server.",
+        )
+    try:
+        return await poll_batch(client, settings, req.batch_id, req.questions)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not read batch status: {type(exc).__name__}",
+        ) from exc
 
 
 @app.post("/generate-questions", response_model=QuestionsResponse)
