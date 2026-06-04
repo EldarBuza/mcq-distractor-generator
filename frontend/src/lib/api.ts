@@ -2,6 +2,7 @@
 // All calls go through "/api", which Vite proxies to the backend in dev and
 // nginx proxies in the Docker build — so there is never a CORS concern.
 import type {
+  BatchStatus,
   Difficulty,
   GeneratedQuestion,
   GenerateResponse,
@@ -70,6 +71,31 @@ export async function generateQuestions(
     body: JSON.stringify({ text, count, difficulty }),
   })
   return asJson<{ questions: QuestionInput[] }>(resp)
+}
+
+/** Submit a large set for asynchronous, cheaper batch generation. */
+export async function createBatch(
+  questions: QuestionInput[],
+): Promise<{ batch_id: string; count: number }> {
+  const resp = await fetch(`${BASE}/batch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ questions }),
+  })
+  return asJson<{ batch_id: string; count: number }>(resp)
+}
+
+/** Poll a batch; `questions` are sent so results can be assembled server-side. */
+export async function getBatchStatus(
+  batchId: string,
+  questions: QuestionInput[],
+): Promise<BatchStatus> {
+  const resp = await fetch(`${BASE}/batch-status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ batch_id: batchId, questions }),
+  })
+  return asJson<BatchStatus>(resp)
 }
 
 export async function parseFile(file: File): Promise<ParseResult> {

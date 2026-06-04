@@ -200,3 +200,63 @@ def test_generate_questions_validation_rejects_empty_text():
     with TestClient(main.app) as client:
         resp = client.post("/generate-questions", json={"text": ""})
     assert resp.status_code == 422
+
+
+# ---- batch (economy) endpoints ----------------------------------------------
+
+
+def _batch_payload():
+    return {
+        "questions": [
+            {"question": "Capital of Australia?", "correct_answer": "Canberra"}
+        ]
+    }
+
+
+def test_batch_create_503_without_client():
+    with TestClient(main.app) as client:
+        main.app.state.anthropic = None
+        resp = client.post("/batch", json=_batch_payload())
+    assert resp.status_code == 503
+
+
+def test_batch_create_happy_path(monkeypatch):
+    async def fake_create(client, settings, questions):
+        return "batch_abc"
+
+    monkeypatch.setattr(main, "create_batch", fake_create)
+    with TestClient(main.app) as client:
+        main.app.state.anthropic = FakeClient()
+        resp = client.post("/batch", json=_batch_payload())
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == {"batch_id": "batch_abc", "count": 1}
+
+
+def test_batch_status_forwards_and_returns(monkeypatch):
+    from app.models import BatchStatusResponse
+
+    seen = {}
+
+    async def fake_poll(client, settings, batch_id, questions):
+        seen["batch_id"] = batch_id
+        seen["n"] = len(questions)
+        return BatchStatusResponse(
+            batch_id=batch_id,
+            status="in_progress",
+            done=False,
+            succeeded=0,
+            errored=0,
+            total=len(questions),
+        )
+
+    monkeypatch.setattr(main, "poll_batch", fake_poll)
+    payload = {"batch_id": "batch_abc", **_batch_payload()}
+    with TestClient(main.app) as client:
+        main.app.state.anthropic = FakeClient()
+        resp = client.post("/batch-status", json=payload)
+
+    assert resp.status_code == 200
+    assert seen["batch_id"] == "batch_abc"
+    assert resp.json()["done"] is False

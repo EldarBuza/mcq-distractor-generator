@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { generate, getHealth, regenerateDistractors } from '@/lib/api'
+import {
+  createBatch,
+  generate,
+  getBatchStatus,
+  getHealth,
+  regenerateDistractors,
+} from '@/lib/api'
 import type {
   GeneratedQuestion,
   HealthResponse,
@@ -53,6 +59,15 @@ function App() {
   const [generating, setGenerating] = useState(false)
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null)
   const [resultsView, setResultsView] = useState<ResultsView>('key')
+  // An in-flight economy batch job; persisted so a reload resumes polling.
+  const [batchId, setBatchId] = usePersistentState<string | null>(
+    'mcq.batchId',
+    null,
+  )
+  const [batchProgress, setBatchProgress] = useState<{
+    succeeded: number
+    total: number
+  } | null>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -111,6 +126,61 @@ function App() {
       setGenerating(false)
     }
   }
+
+  async function handleGenerateBatch() {
+    const valid = questions.filter(
+      (q) => q.question.trim() && q.correct_answer.trim(),
+    )
+    if (valid.length === 0) {
+      toast.error('Add at least one question with an answer.')
+      return
+    }
+    setResults(null)
+    try {
+      const { batch_id } = await createBatch(valid)
+      setGeneratedInputs(valid)
+      setBatchProgress({ succeeded: 0, total: valid.length })
+      setBatchId(batch_id) // kicks off the polling effect
+      toast.success('Batch submitted — results will appear when ready.')
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  // Poll an in-flight batch until it ends, then drop in the assembled results.
+  // Lives in an effect so it resumes automatically after a page reload.
+  useEffect(() => {
+    if (!batchId) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+
+    async function tick() {
+      try {
+        const st = await getBatchStatus(batchId!, generatedInputs)
+        if (cancelled) return
+        setBatchProgress({ succeeded: st.succeeded, total: st.total })
+        if (st.done) {
+          if (st.results) setResults(st.results)
+          setBatchId(null)
+          setBatchProgress(null)
+          toast.success('Batch complete!')
+        } else {
+          timer = setTimeout(tick, 5000)
+        }
+      } catch (e) {
+        if (cancelled) return
+        toast.error(e instanceof Error ? e.message : String(e))
+        setBatchId(null)
+        setBatchProgress(null)
+      }
+    }
+
+    tick()
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [batchId, generatedInputs, setBatchId, setResults])
 
   async function handleRegenerate(index: number, keep: KeptDistractor[] = []) {
     const input = generatedInputs[index]
@@ -219,16 +289,39 @@ function App() {
                 </span>
               </label>
             </div>
-            <Button
-              size="lg"
-              onClick={handleGenerate}
-              disabled={generating || keyMissing}
-            >
-              {generating && <Loader2 className="size-4 animate-spin" />}
-              {generating
-                ? 'Generating…'
-                : `Generate ${questions.length} MCQ${questions.length === 1 ? '' : 's'}`}
-            </Button>
+            {batchId ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                <span>
+                  Batch processing…
+                  {batchProgress
+                    ? ` ${batchProgress.succeeded}/${batchProgress.total}`
+                    : ''}
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={handleGenerateBatch}
+                  disabled={generating || keyMissing}
+                  title="Cheaper, asynchronous batch — no verify/check, results in minutes"
+                >
+                  Economy
+                </Button>
+                <Button
+                  size="lg"
+                  onClick={handleGenerate}
+                  disabled={generating || keyMissing}
+                >
+                  {generating && <Loader2 className="size-4 animate-spin" />}
+                  {generating
+                    ? 'Generating…'
+                    : `Generate ${questions.length} MCQ${questions.length === 1 ? '' : 's'}`}
+                </Button>
+              </div>
+            )}
           </div>
         )}
 

@@ -34,6 +34,17 @@ export interface GenerateResponse {
   results: GeneratedQuestion[]
 }
 
+// Status of an asynchronous "economy" batch generation job.
+export interface BatchStatus {
+  batch_id: string
+  status: string
+  done: boolean
+  succeeded: number
+  errored: number
+  total: number
+  results: GeneratedQuestion[] | null
+}
+
 // A distractor the user locked, sent back so it survives a partial regenerate.
 export interface KeptDistractor {
   text: string

@@ -158,3 +158,39 @@ class GeneratedQuestion(BaseModel):
 
 class GenerateResponse(BaseModel):
     results: list[GeneratedQuestion]
+
+
+# ---- Batch (economy) mode ---------------------------------------------------
+
+
+class BatchCreateRequest(BaseModel):
+    """Submit a large set for asynchronous, ~50%-cheaper batch generation. This
+    path is single-pass per question — no verify / answer-check / top-up."""
+
+    questions: list[QuestionInput] = Field(..., min_length=1, max_length=1000)
+
+
+class BatchCreateResponse(BaseModel):
+    batch_id: str
+    count: int
+
+
+class BatchStatusRequest(BaseModel):
+    """Poll a batch. The original questions are sent back so results can be
+    assembled (correct answer added + shuffled) server-side, keeping the app
+    stateless and the correct-answer guarantee intact."""
+
+    batch_id: str
+    questions: list[QuestionInput] = Field(..., min_length=1, max_length=1000)
+
+
+class BatchStatusResponse(BaseModel):
+    batch_id: str
+    # Raw Anthropic processing_status (e.g. "in_progress", "ended").
+    status: str
+    done: bool
+    succeeded: int
+    errored: int
+    total: int
+    # Populated only once done; aligned 1:1 with the submitted questions.
+    results: list[GeneratedQuestion] | None = None
