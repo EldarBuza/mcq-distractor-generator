@@ -6,8 +6,13 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
-from app.generator import generate_batch
-from app.models import GenerateRequest, GenerateResponse
+from app.generator import generate_batch, regenerate_partial
+from app.models import (
+    GeneratedQuestion,
+    GenerateRequest,
+    GenerateResponse,
+    RegenerateRequest,
+)
 from app.parsing import ParseResult, parse_text, parse_upload
 from pydantic import BaseModel, Field
 
@@ -66,9 +71,27 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
             detail="ANTHROPIC_API_KEY is not configured on the server.",
         )
     results = await generate_batch(
-        client, settings, req.questions, verify=req.verify
+        client,
+        settings,
+        req.questions,
+        verify=req.verify,
+        check_answer=req.check_answer,
     )
     return GenerateResponse(results=results)
+
+
+@app.post("/regenerate", response_model=GeneratedQuestion)
+async def regenerate(req: RegenerateRequest) -> GeneratedQuestion:
+    """Regenerate one question's unlocked distractors, keeping the locked ones."""
+    client = app.state.anthropic
+    if client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ANTHROPIC_API_KEY is not configured on the server.",
+        )
+    return await regenerate_partial(
+        client, settings, req.question, req.keep, verify=req.verify
+    )
 
 
 class ParseTextRequest(BaseModel):

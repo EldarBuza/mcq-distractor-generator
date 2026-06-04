@@ -11,18 +11,25 @@ from pydantic import ValidationError
 
 from app.config import Settings
 from app.models import (
+    AnswerCheck,
     DistractorSet,
     GeneratedQuestion,
+    KeptDistractor,
     QuestionInput,
     ReviewResult,
 )
 from app.prompts import (
+    ANSWER_CHECK_SYSTEM,
+    CHECK_TOOL,
+    CHECK_TOOL_NAME,
     DISTRACTOR_TOOL,
     FULL_SYSTEM,
     REVIEW_SYSTEM,
     REVIEW_TOOL,
     REVIEW_TOOL_NAME,
     TOOL_NAME,
+    build_answer_check_message,
+    build_regen_message,
     build_review_message,
     build_user_message,
 )
@@ -88,6 +95,34 @@ async def _call_model(
     return _extract_tool_input(message, TOOL_NAME, DistractorSet)
 
 
+async def _call_model_regen(
+    client: AsyncAnthropic,
+    settings: Settings,
+    q: QuestionInput,
+    count: int,
+    avoid: list[str],
+) -> DistractorSet:
+    """Generate `count` distractors that avoid an existing set (for partial
+    regeneration of only the unlocked distractors)."""
+    message = await client.messages.create(
+        model=settings.anthropic_model,
+        max_tokens=MAX_TOKENS,
+        system=[
+            {
+                "type": "text",
+                "text": FULL_SYSTEM,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        tools=[DISTRACTOR_TOOL],
+        tool_choice={"type": "tool", "name": TOOL_NAME},
+        messages=[
+            {"role": "user", "content": build_regen_message(q, count, avoid)}
+        ],
+    )
+    return _extract_tool_input(message, TOOL_NAME, DistractorSet)
+
+
 async def _review_model(
     client: AsyncAnthropic,
     settings: Settings,
@@ -109,6 +144,37 @@ async def _review_model(
         messages=[{"role": "user", "content": build_review_message(q, distractors)}],
     )
     return _extract_tool_input(message, REVIEW_TOOL_NAME, ReviewResult)
+
+
+async def _check_answer(
+    client: AsyncAnthropic, settings: Settings, q: QuestionInput
+) -> AnswerCheck:
+    message = await client.messages.create(
+        model=settings.anthropic_model,
+        max_tokens=MAX_TOKENS,
+        system=[
+            {
+                "type": "text",
+                "text": ANSWER_CHECK_SYSTEM,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        tools=[CHECK_TOOL],
+        tool_choice={"type": "tool", "name": CHECK_TOOL_NAME},
+        messages=[{"role": "user", "content": build_answer_check_message(q)}],
+    )
+    return _extract_tool_input(message, CHECK_TOOL_NAME, AnswerCheck)
+
+
+async def _safe_check_answer(
+    client: AsyncAnthropic, settings: Settings, q: QuestionInput
+) -> AnswerCheck | None:
+    """Run the advisory answer check, swallowing any failure: a broken check
+    must never fail or block the actual generation."""
+    try:
+        return await _check_answer(client, settings, q)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 async def _verify_distractors(
@@ -165,15 +231,26 @@ async def generate_one(
     settings: Settings,
     q: QuestionInput,
     verify: bool = False,
+    check_answer: bool = False,
 ) -> GeneratedQuestion:
     """Generate distractors for one question and return a finished MCQ.
 
     When ``verify`` is True, a second LLM pass critiques the distractors and
     drops any judged ambiguous, defensible-as-correct, or duplicate.
 
+    When ``check_answer`` is True, an advisory pass (run concurrently) judges
+    whether the supplied correct answer is actually correct and attaches the
+    verdict — it never alters the answer or distractors.
+
     On any failure, returns a GeneratedQuestion with `error` set and the correct
     answer as the sole option, so a batch never fails wholesale.
     """
+    # Kick off the independent answer check up front so it overlaps generation.
+    check_task = (
+        asyncio.ensure_future(_safe_check_answer(client, settings, q))
+        if check_answer
+        else None
+    )
     try:
         result = await _call_model(client, settings, q)
         distractors = _clean_distractors(
@@ -220,6 +297,118 @@ async def generate_one(
             rationale=rationale,
             difficulty=q.difficulty,
             verified=verify,
+            answer_check=(await check_task) if check_task else None,
+        )
+    except (ValidationError, ValueError, Exception) as exc:  # noqa: BLE001
+        return GeneratedQuestion(
+            question=q.question,
+            correct_answer=q.correct_answer,
+            options=[q.correct_answer],
+            correct_index=0,
+            distractors=[],
+            rationale=[],
+            difficulty=q.difficulty,
+            error=f"{type(exc).__name__}: {exc}",
+            answer_check=(await check_task) if check_task else None,
+        )
+
+
+def _sanitize_kept(
+    keep: list[KeptDistractor], q: QuestionInput
+) -> tuple[list[str], list[str]]:
+    """Drop kept distractors that are blank, equal to the correct answer, or
+    duplicates, capped at the requested count. Returns (texts, rationales)."""
+    correct_n = _norm(q.correct_answer)
+    seen: set[str] = set()
+    texts: list[str] = []
+    rationales: list[str] = []
+    for k in keep:
+        text = k.text.strip()
+        if not text:
+            continue
+        n = _norm(text)
+        if n == correct_n or n in seen:
+            continue
+        seen.add(n)
+        texts.append(text)
+        rationales.append(k.rationale or "")
+        if len(texts) >= q.num_distractors:
+            break
+    return texts, rationales
+
+
+async def regenerate_partial(
+    client: AsyncAnthropic,
+    settings: Settings,
+    q: QuestionInput,
+    keep: list[KeptDistractor],
+    verify: bool = False,
+) -> GeneratedQuestion:
+    """Regenerate only the UNLOCKED distractors: keep the locked ones verbatim
+    (text + rationale) and generate the remainder, avoiding duplicates of the
+    kept set. With an empty `keep`, this is equivalent to a full regeneration.
+
+    Like generate_one, any failure is captured into the returned object's
+    `error` field rather than raised.
+    """
+    try:
+        kept_texts, kept_rationale = _sanitize_kept(keep, q)
+        need = q.num_distractors - len(kept_texts)
+
+        new_d: list[str] = []
+        new_r: list[str] = []
+        if need > 0:
+            avoid = list(kept_texts)
+            result = await _call_model_regen(client, settings, q, need, avoid)
+            avoid_n = {_norm(a) for a in avoid}
+            new_d = [
+                d
+                for d in _clean_distractors(
+                    result.distractors, q.correct_answer, q.num_distractors
+                )
+                if _norm(d) not in avoid_n
+            ][:need]
+            new_r = result.rationale[: len(new_d)]
+
+            # One top-up attempt if cleaning/avoidance left us short.
+            if len(new_d) < need:
+                have_n = avoid_n | {_norm(d) for d in new_d}
+                retry = await _call_model_regen(
+                    client, settings, q, need, avoid + new_d
+                )
+                extra = [
+                    d
+                    for d in _clean_distractors(
+                        retry.distractors, q.correct_answer, q.num_distractors
+                    )
+                    if _norm(d) not in have_n
+                ][: need - len(new_d)]
+                new_d += extra
+                new_r += retry.rationale[: len(extra)]
+
+            if verify and new_d:
+                new_d, new_r = await _verify_distractors(
+                    client, settings, q, new_d, new_r
+                )
+
+        distractors = kept_texts + new_d
+        rationale = kept_rationale + new_r
+        if not distractors:
+            raise ValueError("no usable distractors after regeneration")
+
+        options = [q.correct_answer] + distractors
+        random.shuffle(options)
+        correct_index = options.index(q.correct_answer)
+
+        return GeneratedQuestion(
+            question=q.question,
+            correct_answer=q.correct_answer,
+            options=options,
+            correct_index=correct_index,
+            distractors=distractors,
+            rationale=rationale,
+            difficulty=q.difficulty,
+            verified=verify,
         )
     except (ValidationError, ValueError, Exception) as exc:  # noqa: BLE001
         return GeneratedQuestion(
@@ -239,6 +428,7 @@ async def generate_batch(
     settings: Settings,
     questions: list[QuestionInput],
     verify: bool = False,
+    check_answer: bool = False,
 ) -> list[GeneratedQuestion]:
     """Generate distractors for many questions concurrently, order preserved.
 
@@ -250,6 +440,8 @@ async def generate_batch(
 
     async def _bounded(q: QuestionInput) -> GeneratedQuestion:
         async with sem:
-            return await generate_one(client, settings, q, verify=verify)
+            return await generate_one(
+                client, settings, q, verify=verify, check_answer=check_answer
+            )
 
     return await asyncio.gather(*(_bounded(q) for q in questions))

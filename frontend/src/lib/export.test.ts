@@ -13,6 +13,7 @@ function q(overrides: Partial<GeneratedQuestion> = {}): GeneratedQuestion {
     difficulty: 'medium',
     error: null,
     verified: false,
+    answer_check: null,
     ...overrides,
   }
 }

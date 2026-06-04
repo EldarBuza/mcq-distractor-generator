@@ -87,6 +87,41 @@ REVIEW_TOOL = {
 
 REVIEW_TOOL_NAME = REVIEW_TOOL["name"]
 
+# ---- Answer-check tool schema -----------------------------------------------
+# Used by the optional, advisory answer sanity-check. The model judges whether
+# the user's supplied correct answer is actually correct for the question.
+
+CHECK_TOOL = {
+    "name": "submit_answer_check",
+    "description": (
+        "Report whether the provided answer is actually correct for the "
+        "question."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "ok": {
+                "type": "boolean",
+                "description": (
+                    "True if the provided answer is correct (or clearly "
+                    "acceptable) for the question; false if it appears wrong."
+                ),
+            },
+            "note": {
+                "type": "string",
+                "description": (
+                    "If ok is false, a brief explanation of why the answer "
+                    "looks incorrect and what the correct answer likely is. "
+                    "Keep it to one or two sentences. Empty or brief when ok."
+                ),
+            },
+        },
+        "required": ["ok", "note"],
+    },
+}
+
+CHECK_TOOL_NAME = CHECK_TOOL["name"]
+
 # ---- System prompt ----------------------------------------------------------
 
 SYSTEM_PROMPT = """\
@@ -166,6 +201,27 @@ respond by calling the `submit_review` tool with exactly one verdict per \
 candidate, in order.\
 """
 
+# ---- Answer-check system prompt ---------------------------------------------
+# Static across requests, so it is cache-able like the others.
+
+ANSWER_CHECK_SYSTEM = """\
+You are a meticulous fact-checker for multiple-choice questions. You are given a \
+QUESTION and a PROVIDED ANSWER. Decide whether the provided answer is actually \
+correct for the question.
+
+- ok = true if the provided answer is correct, or is one clearly acceptable \
+answer among several valid ones.
+- ok = false if the provided answer is factually wrong, does not answer the \
+question, or is a common misconception. In that case, the `note` should briefly \
+say why and state the correct answer.
+
+Be careful and avoid false alarms: only mark ok = false when you are confident \
+the answer is wrong. If the question is subjective, ambiguous, or depends on \
+context you cannot see, prefer ok = true. You are advising the author — you must \
+NOT rewrite the question or answer. Always respond by calling the \
+`submit_answer_check` tool.\
+"""
+
 
 # ---- Per-question user message ----------------------------------------------
 
@@ -205,4 +261,35 @@ def build_review_message(q: QuestionInput, distractors: list[str]) -> str:
         f"CANDIDATE distractors:\n{numbered}\n\n"
         f"Call submit_review with exactly {len(distractors)} verdicts, one per "
         f"candidate, in the same order."
+    )
+
+
+def build_answer_check_message(q: QuestionInput) -> str:
+    return (
+        f"QUESTION: {q.question}\n"
+        f"PROVIDED ANSWER: {q.correct_answer}\n\n"
+        "Call submit_answer_check with your verdict."
+    )
+
+
+def build_regen_message(
+    q: QuestionInput, count: int, avoid: list[str]
+) -> str:
+    """Ask for `count` fresh distractors that avoid an existing set — used when
+    regenerating only the unlocked distractors of a question."""
+    avoid_block = ""
+    if avoid:
+        listed = "\n".join(f"- {a}" for a in avoid)
+        avoid_block = (
+            "\nThese options already exist for this question. Do NOT repeat, "
+            f"paraphrase, or closely resemble any of them:\n{listed}\n"
+        )
+    return (
+        f"QUESTION: {q.question}\n"
+        f"CORRECT ANSWER: {q.correct_answer}\n"
+        f"Number of distractors to generate: {count}\n"
+        f"{_DIFFICULTY_GUIDANCE[q.difficulty]}\n"
+        f"{avoid_block}\n"
+        f"Call submit_distractors with exactly {count} distractors "
+        f"and {count} parallel rationale notes."
     )
