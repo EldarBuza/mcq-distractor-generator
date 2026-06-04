@@ -10,11 +10,20 @@ from anthropic import AsyncAnthropic
 from pydantic import ValidationError
 
 from app.config import Settings
-from app.models import DistractorSet, GeneratedQuestion, QuestionInput
+from app.models import (
+    DistractorSet,
+    GeneratedQuestion,
+    QuestionInput,
+    ReviewResult,
+)
 from app.prompts import (
     DISTRACTOR_TOOL,
     FULL_SYSTEM,
+    REVIEW_SYSTEM,
+    REVIEW_TOOL,
+    REVIEW_TOOL_NAME,
     TOOL_NAME,
+    build_review_message,
     build_user_message,
 )
 
@@ -51,12 +60,12 @@ def _clean_distractors(
     return out
 
 
-def _extract_distractor_set(message) -> DistractorSet:
-    """Pull the tool_use input out of an Anthropic message and validate it."""
+def _extract_tool_input(message, tool_name, model_cls):
+    """Pull the input of the named tool_use block and validate it against model_cls."""
     for block in message.content:
-        if getattr(block, "type", None) == "tool_use" and block.name == TOOL_NAME:
-            return DistractorSet.model_validate(block.input)
-    raise ValueError("model did not call the submit_distractors tool")
+        if getattr(block, "type", None) == "tool_use" and block.name == tool_name:
+            return model_cls.model_validate(block.input)
+    raise ValueError(f"model did not call the {tool_name} tool")
 
 
 async def _call_model(
@@ -76,13 +85,91 @@ async def _call_model(
         tool_choice={"type": "tool", "name": TOOL_NAME},
         messages=[{"role": "user", "content": build_user_message(q)}],
     )
-    return _extract_distractor_set(message)
+    return _extract_tool_input(message, TOOL_NAME, DistractorSet)
+
+
+async def _review_model(
+    client: AsyncAnthropic,
+    settings: Settings,
+    q: QuestionInput,
+    distractors: list[str],
+) -> ReviewResult:
+    message = await client.messages.create(
+        model=settings.anthropic_model,
+        max_tokens=MAX_TOKENS,
+        system=[
+            {
+                "type": "text",
+                "text": REVIEW_SYSTEM,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        tools=[REVIEW_TOOL],
+        tool_choice={"type": "tool", "name": REVIEW_TOOL_NAME},
+        messages=[{"role": "user", "content": build_review_message(q, distractors)}],
+    )
+    return _extract_tool_input(message, REVIEW_TOOL_NAME, ReviewResult)
+
+
+async def _verify_distractors(
+    client: AsyncAnthropic,
+    settings: Settings,
+    q: QuestionInput,
+    distractors: list[str],
+    rationale: list[str],
+) -> tuple[list[str], list[str]]:
+    """Run the review pass; keep only distractors judged ok, filtering rationale
+    in lockstep. Missing/short verdicts default to KEEP, so a malformed review
+    never silently empties an otherwise-good set."""
+    review = await _review_model(client, settings, q, distractors)
+    kept_d: list[str] = []
+    kept_r: list[str] = []
+    for i, d in enumerate(distractors):
+        verdict = review.verdicts[i] if i < len(review.verdicts) else None
+        if verdict is None or verdict.ok:
+            kept_d.append(d)
+            kept_r.append(rationale[i] if i < len(rationale) else "")
+    return kept_d, kept_r
+
+
+async def _replenish_verified(
+    client: AsyncAnthropic,
+    settings: Settings,
+    q: QuestionInput,
+    distractors: list[str],
+    rationale: list[str],
+) -> tuple[list[str], list[str]]:
+    """One attempt to top up a verified set that fell short: generate fresh
+    candidates, drop ones we already kept, verify them, and append the keepers
+    up to the requested count."""
+    need = q.num_distractors - len(distractors)
+    have = {_norm(d) for d in distractors}
+    fresh = await _call_model(client, settings, q)
+    candidates = [
+        d
+        for d in _clean_distractors(
+            fresh.distractors, q.correct_answer, q.num_distractors
+        )
+        if _norm(d) not in have
+    ][:need]
+    if not candidates:
+        return distractors, rationale
+    new_d, new_r = await _verify_distractors(
+        client, settings, q, candidates, fresh.rationale[: len(candidates)]
+    )
+    return distractors + new_d, rationale + new_r
 
 
 async def generate_one(
-    client: AsyncAnthropic, settings: Settings, q: QuestionInput
+    client: AsyncAnthropic,
+    settings: Settings,
+    q: QuestionInput,
+    verify: bool = False,
 ) -> GeneratedQuestion:
     """Generate distractors for one question and return a finished MCQ.
+
+    When ``verify`` is True, a second LLM pass critiques the distractors and
+    drops any judged ambiguous, defensible-as-correct, or duplicate.
 
     On any failure, returns a GeneratedQuestion with `error` set and the correct
     answer as the sole option, so a batch never fails wholesale.
@@ -107,6 +194,19 @@ async def generate_one(
         # Pair rationale to surviving distractors by best-effort index alignment.
         rationale = result.rationale[: len(distractors)]
 
+        # Optional second pass: critique and drop weak distractors, then top up
+        # once if verification left us short of the requested count.
+        if verify:
+            distractors, rationale = await _verify_distractors(
+                client, settings, q, distractors, rationale
+            )
+            if 0 < len(distractors) < q.num_distractors:
+                distractors, rationale = await _replenish_verified(
+                    client, settings, q, distractors, rationale
+                )
+            if not distractors:
+                raise ValueError("no distractors survived verification")
+
         options = [q.correct_answer] + distractors
         random.shuffle(options)
         correct_index = options.index(q.correct_answer)
@@ -119,6 +219,7 @@ async def generate_one(
             distractors=distractors,
             rationale=rationale,
             difficulty=q.difficulty,
+            verified=verify,
         )
     except (ValidationError, ValueError, Exception) as exc:  # noqa: BLE001
         return GeneratedQuestion(
@@ -137,6 +238,7 @@ async def generate_batch(
     client: AsyncAnthropic,
     settings: Settings,
     questions: list[QuestionInput],
+    verify: bool = False,
 ) -> list[GeneratedQuestion]:
     """Generate distractors for many questions concurrently, order preserved.
 
@@ -148,6 +250,6 @@ async def generate_batch(
 
     async def _bounded(q: QuestionInput) -> GeneratedQuestion:
         async with sem:
-            return await generate_one(client, settings, q)
+            return await generate_one(client, settings, q, verify=verify)
 
     return await asyncio.gather(*(_bounded(q) for q in questions))

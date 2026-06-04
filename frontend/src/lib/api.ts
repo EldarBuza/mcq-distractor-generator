@@ -30,11 +30,12 @@ export async function getHealth(): Promise<HealthResponse> {
 
 export async function generate(
   questions: QuestionInput[],
+  verify = false,
 ): Promise<GenerateResponse> {
   const resp = await fetch(`${BASE}/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ questions }),
+    body: JSON.stringify({ questions, verify }),
   })
   return asJson<GenerateResponse>(resp)
 }

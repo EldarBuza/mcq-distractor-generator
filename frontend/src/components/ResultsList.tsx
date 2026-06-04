@@ -2,7 +2,7 @@ import type { GeneratedQuestion } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
-import { Check, Download, RefreshCw } from 'lucide-react'
+import { Check, Download, RefreshCw, ShieldCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { exportCsv, exportGift } from '@/lib/export'
 
@@ -69,9 +69,17 @@ export function ResultsList({
               <p className="font-medium leading-snug">
                 {i + 1}. {r.question}
               </p>
-              <Badge variant={DIFFICULTY_VARIANT[r.difficulty]} className="capitalize">
-                {r.difficulty}
-              </Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={DIFFICULTY_VARIANT[r.difficulty]} className="capitalize">
+                  {r.difficulty}
+                </Badge>
+                {r.verified && !r.error && (
+                  <Badge variant="secondary" className="gap-1">
+                    <ShieldCheck className="size-3" />
+                    Verified
+                  </Badge>
+                )}
+              </div>
             </div>
             <Button
               variant="outline"

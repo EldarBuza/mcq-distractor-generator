@@ -12,6 +12,7 @@ function q(overrides: Partial<GeneratedQuestion> = {}): GeneratedQuestion {
     rationale: [],
     difficulty: 'medium',
     error: null,
+    verified: false,
     ...overrides,
   }
 }

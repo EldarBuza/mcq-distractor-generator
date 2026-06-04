@@ -20,6 +20,21 @@ def _fake_message(distractors, rationale=None):
     return SimpleNamespace(content=[block])
 
 
+def _fake_review(oks):
+    """Build a fake submit_review message: one verdict per bool in `oks`."""
+    block = SimpleNamespace(
+        type="tool_use",
+        name="submit_review",
+        input={
+            "verdicts": [
+                {"ok": ok, "issue": "" if ok else "not a good distractor"}
+                for ok in oks
+            ]
+        },
+    )
+    return SimpleNamespace(content=[block])
+
+
 class FakeMessages:
     def __init__(self, responses):
         self._responses = list(responses)
@@ -86,6 +101,72 @@ async def test_generate_one_tops_up_when_short():
     assert len(result.distractors) == 3
     assert "Canberra" not in result.distractors
     assert client.messages.calls == 2  # retried once
+
+
+# ---- generate_one with verification ----------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_verify_keeps_all_when_all_ok():
+    client = FakeClient([
+        _fake_message(["Sydney", "Melbourne", "Perth"], ["r1", "r2", "r3"]),
+        _fake_review([True, True, True]),
+    ])
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=3)
+    result = await generate_one(client, SETTINGS, q, verify=True)
+
+    assert result.error is None
+    assert result.verified is True
+    assert set(result.distractors) == {"Sydney", "Melbourne", "Perth"}
+    assert client.messages.calls == 2  # generate + review, no replenish
+
+
+@pytest.mark.asyncio
+async def test_verify_drops_then_replenishes():
+    client = FakeClient([
+        _fake_message(["Sydney", "Melbourne", "Perth"], ["r1", "r2", "r3"]),
+        _fake_review([True, True, False]),  # rejects "Perth"
+        _fake_message(["Darwin", "Hobart", "Adelaide"], ["r4", "r5", "r6"]),
+        _fake_review([True]),  # accepts the one top-up candidate we need
+    ])
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=3)
+    result = await generate_one(client, SETTINGS, q, verify=True)
+
+    assert result.error is None
+    assert result.verified is True
+    assert len(result.distractors) == 3
+    assert "Perth" not in result.distractors
+    assert "Darwin" in result.distractors
+    assert client.messages.calls == 4  # generate + review + replenish + review
+
+
+@pytest.mark.asyncio
+async def test_verify_rejecting_all_yields_error():
+    client = FakeClient([
+        _fake_message(["Sydney", "Melbourne", "Perth"], ["r1", "r2", "r3"]),
+        _fake_review([False, False, False]),
+    ])
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=3)
+    result = await generate_one(client, SETTINGS, q, verify=True)
+
+    assert result.error is not None
+    assert "survived verification" in result.error
+    assert result.options == ["Canberra"]
+
+
+@pytest.mark.asyncio
+async def test_verify_off_skips_review_call():
+    client = FakeClient([_fake_message(["Sydney", "Melbourne", "Perth"])])
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=3)
+    result = await generate_one(client, SETTINGS, q)  # verify defaults False
+
+    assert result.error is None
+    assert result.verified is False
+    assert client.messages.calls == 1  # generate only, no review
 
 
 @pytest.mark.asyncio
