@@ -38,7 +38,7 @@ def test_generate_validation_error_empty_batch():
 
 
 def test_generate_happy_path(monkeypatch):
-    async def fake_batch(client, settings, questions):
+    async def fake_batch(client, settings, questions, verify=False):
         return [
             GeneratedQuestion(
                 question=q.question,
@@ -48,6 +48,7 @@ def test_generate_happy_path(monkeypatch):
                 distractors=["X", "Y", "Z"],
                 rationale=["r1", "r2", "r3"],
                 difficulty=Difficulty.medium,
+                verified=verify,
             )
             for q in questions
         ]
@@ -65,3 +66,37 @@ def test_generate_happy_path(monkeypatch):
     assert r["correct_answer"] == "Canberra"
     assert r["options"][r["correct_index"]] == "Canberra"
     assert r["error"] is None
+    assert r["verified"] is False  # verify defaults off
+
+
+def test_generate_passes_verify_flag(monkeypatch):
+    """The endpoint must forward request.verify into generate_batch."""
+    seen = {}
+
+    async def fake_batch(client, settings, questions, verify=False):
+        seen["verify"] = verify
+        return [
+            GeneratedQuestion(
+                question=q.question,
+                correct_answer=q.correct_answer,
+                options=[q.correct_answer, "X", "Y", "Z"],
+                correct_index=0,
+                distractors=["X", "Y", "Z"],
+                rationale=[],
+                difficulty=Difficulty.medium,
+                verified=verify,
+            )
+            for q in questions
+        ]
+
+    monkeypatch.setattr(main, "generate_batch", fake_batch)
+
+    payload = _sample_payload()
+    payload["verify"] = True
+    with TestClient(main.app) as client:
+        main.app.state.anthropic = FakeClient()
+        resp = client.post("/generate", json=payload)
+
+    assert resp.status_code == 200
+    assert seen["verify"] is True
+    assert resp.json()["results"][0]["verified"] is True

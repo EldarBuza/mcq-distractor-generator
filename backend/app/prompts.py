@@ -38,6 +38,55 @@ DISTRACTOR_TOOL = {
 
 TOOL_NAME = DISTRACTOR_TOOL["name"]
 
+# ---- Review tool schema -----------------------------------------------------
+# Used by the optional verification pass. The reviewer judges each candidate
+# distractor and returns a parallel array of verdicts.
+
+REVIEW_TOOL = {
+    "name": "submit_review",
+    "description": (
+        "Submit a verdict for each candidate distractor of one multiple-choice "
+        "question, in the same order they were given."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "verdicts": {
+                "type": "array",
+                "description": (
+                    "One verdict per candidate distractor, parallel to the "
+                    "numbered list provided."
+                ),
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "ok": {
+                            "type": "boolean",
+                            "description": (
+                                "True if the distractor is a good, "
+                                "unambiguously-wrong option; false if it should "
+                                "be dropped."
+                            ),
+                        },
+                        "issue": {
+                            "type": "string",
+                            "description": (
+                                "If ok is false, a short reason (e.g. "
+                                "'could be argued correct', 'near-duplicate of "
+                                "the answer'). Empty when ok is true."
+                            ),
+                        },
+                    },
+                    "required": ["ok", "issue"],
+                },
+            }
+        },
+        "required": ["verdicts"],
+    },
+}
+
+REVIEW_TOOL_NAME = REVIEW_TOOL["name"]
+
 # ---- System prompt ----------------------------------------------------------
 
 SYSTEM_PROMPT = """\
@@ -94,6 +143,29 @@ released not absorbed; nitrogen is abundant; hydrogen sounds chemical), all wron
 
 FULL_SYSTEM = SYSTEM_PROMPT + "\n\n" + FEW_SHOT
 
+# ---- Review system prompt ---------------------------------------------------
+# Static across requests, so it is cache-able like FULL_SYSTEM.
+
+REVIEW_SYSTEM = """\
+You are a strict reviewer of multiple-choice question distractors (the incorrect \
+answer options). You are given a QUESTION, its CORRECT ANSWER, and a numbered \
+list of CANDIDATE distractors. Judge each candidate independently.
+
+Reject a candidate (ok = false) if ANY of these is true:
+1. It could be argued to be correct, or is partially defensible as an answer — \
+a distractor must be unambiguously WRONG.
+2. It is a paraphrase, synonym, or near-duplicate of the correct answer.
+3. It is a paraphrase or near-duplicate of another candidate distractor.
+4. It is not homogeneous with the correct answer (wildly different format, \
+length, or category, so it gives the answer away).
+5. It is nonsensical, a joke, "all/none of the above", or references the choices.
+
+Otherwise accept it (ok = true). Be conservative: when a candidate is clearly \
+fine, keep it. Only reject candidates that genuinely violate a rule. Always \
+respond by calling the `submit_review` tool with exactly one verdict per \
+candidate, in order.\
+"""
+
 
 # ---- Per-question user message ----------------------------------------------
 
@@ -122,4 +194,15 @@ def build_user_message(q: QuestionInput) -> str:
         f"{_DIFFICULTY_GUIDANCE[q.difficulty]}\n\n"
         f"Call submit_distractors with exactly {q.num_distractors} distractors "
         f"and {q.num_distractors} parallel rationale notes."
+    )
+
+
+def build_review_message(q: QuestionInput, distractors: list[str]) -> str:
+    numbered = "\n".join(f"{i + 1}. {d}" for i, d in enumerate(distractors))
+    return (
+        f"QUESTION: {q.question}\n"
+        f"CORRECT ANSWER: {q.correct_answer}\n\n"
+        f"CANDIDATE distractors:\n{numbered}\n\n"
+        f"Call submit_review with exactly {len(distractors)} verdicts, one per "
+        f"candidate, in the same order."
     )

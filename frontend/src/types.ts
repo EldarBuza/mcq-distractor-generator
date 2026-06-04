@@ -18,6 +18,7 @@ export interface GeneratedQuestion {
   rationale: string[]
   difficulty: Difficulty
   error: string | null
+  verified: boolean
 }
 
 export interface GenerateResponse {

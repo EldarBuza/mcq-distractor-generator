@@ -34,6 +34,10 @@ class GenerateRequest(BaseModel):
     """A batch of questions to process in one request."""
 
     questions: list[QuestionInput] = Field(..., min_length=1, max_length=200)
+    # When true, run a second LLM pass that critiques each distractor and drops
+    # any that are defensible-as-correct, ambiguous, or near-duplicates. Higher
+    # quality, but roughly doubles cost and latency. Off by default.
+    verify: bool = False
 
 
 # ---- LLM tool output (what Claude must return per question) ------------------
@@ -50,6 +54,21 @@ class DistractorSet(BaseModel):
     rationale: list[str] = Field(default_factory=list)
 
 
+class DistractorVerdict(BaseModel):
+    """The reviewer's judgment on one candidate distractor."""
+
+    ok: bool
+    # Short reason a distractor was rejected; empty when ok is True.
+    issue: str = ""
+
+
+class ReviewResult(BaseModel):
+    """The structured shape the verification pass returns: one verdict per
+    candidate distractor, parallel to the list it was given."""
+
+    verdicts: list[DistractorVerdict] = Field(default_factory=list)
+
+
 # ---- Outbound ---------------------------------------------------------------
 
 
@@ -64,6 +83,8 @@ class GeneratedQuestion(BaseModel):
     rationale: list[str] = Field(default_factory=list)
     difficulty: Difficulty
     error: str | None = None
+    # True when the distractors passed through the optional verification pass.
+    verified: bool = False
 
 
 class GenerateResponse(BaseModel):

@@ -65,7 +65,9 @@ async def generate(req: GenerateRequest) -> GenerateResponse:
             status_code=503,
             detail="ANTHROPIC_API_KEY is not configured on the server.",
         )
-    results = await generate_batch(client, settings, req.questions)
+    results = await generate_batch(
+        client, settings, req.questions, verify=req.verify
+    )
     return GenerateResponse(results=results)
 
 

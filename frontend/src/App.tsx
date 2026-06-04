@@ -6,6 +6,7 @@ import { QuestionEditorList } from '@/components/QuestionEditorList'
 import { ResultsList } from '@/components/ResultsList'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
 import {
   Card,
   CardContent,
@@ -25,6 +26,8 @@ function App() {
   const [generatedInputs, setGeneratedInputs] = useState<QuestionInput[]>([])
   const [generating, setGenerating] = useState(false)
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null)
+  // Optional second LLM pass that critiques and prunes weak distractors.
+  const [verify, setVerify] = useState(false)
   const resultsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -64,7 +67,7 @@ function App() {
     setGenerating(true)
     setResults(null)
     try {
-      const resp = await generate(valid)
+      const resp = await generate(valid, verify)
       setResults(resp.results)
       setGeneratedInputs(valid)
       const failed = resp.results.filter((r) => r.error).length
@@ -82,7 +85,7 @@ function App() {
     if (!input) return
     setRegeneratingIndex(index)
     try {
-      const resp = await generate([input])
+      const resp = await generate([input], verify)
       const fresh = resp.results[0]
       setResults((prev) =>
         prev ? prev.map((r, i) => (i === index ? fresh : r)) : prev,
@@ -144,12 +147,25 @@ function App() {
         />
 
         {questions.length > 0 && (
-          <div className="sticky bottom-4 flex justify-end">
+          <div className="sticky bottom-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background/80 px-4 py-3 shadow-lg backdrop-blur">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <Switch
+                checked={verify}
+                onCheckedChange={setVerify}
+                disabled={generating}
+                aria-label="Verify distractors"
+              />
+              <span className="text-sm leading-tight">
+                <span className="font-medium">Verify distractors</span>
+                <span className="block text-xs text-muted-foreground">
+                  Extra AI review pass — slower &amp; higher cost, better quality
+                </span>
+              </span>
+            </label>
             <Button
               size="lg"
               onClick={handleGenerate}
               disabled={generating || keyMissing}
-              className="shadow-lg"
             >
               {generating && <Loader2 className="size-4 animate-spin" />}
               {generating
