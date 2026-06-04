@@ -31,8 +31,18 @@ DISTRACTOR_TOOL = {
                     "might be tempted by it (parallel to the distractors array)."
                 ),
             },
+            "misconceptions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "A very short label (2-5 words) per distractor naming the "
+                    "specific misconception or error it targets — e.g. "
+                    "'Historical vs. current capital', 'Unit confusion', "
+                    "'Off-by-one'. Parallel to the distractors array."
+                ),
+            },
         },
-        "required": ["distractors", "rationale"],
+        "required": ["distractors", "rationale", "misconceptions"],
     },
 }
 
@@ -190,7 +200,9 @@ from the correct answer. No paraphrases or near-duplicates.
 6. Never reveal, restate, or include the correct answer among the distractors.
 
 You will always respond by calling the `submit_distractors` tool. Provide exactly \
-the requested number of distractors and a parallel `rationale` entry for each.\
+the requested number of distractors, a parallel `rationale` entry for each, and a \
+parallel `misconceptions` entry — a 2-5 word label naming the specific \
+misconception or error each distractor targets.\
 """
 
 # ---- Few-shot examples ------------------------------------------------------
@@ -318,8 +330,9 @@ def build_user_message(q: QuestionInput) -> str:
         f"CORRECT ANSWER: {q.correct_answer}\n"
         f"Number of distractors to generate: {q.num_distractors}\n"
         f"{_DIFFICULTY_GUIDANCE[q.difficulty]}\n\n"
-        f"Call submit_distractors with exactly {q.num_distractors} distractors "
-        f"and {q.num_distractors} parallel rationale notes."
+        f"Call submit_distractors with exactly {q.num_distractors} distractors, "
+        f"{q.num_distractors} parallel rationale notes, and {q.num_distractors} "
+        f"parallel misconception labels."
     )
 
 
@@ -386,6 +399,7 @@ def build_regen_message(
         f"Number of distractors to generate: {count}\n"
         f"{_DIFFICULTY_GUIDANCE[q.difficulty]}\n"
         f"{avoid_block}\n"
-        f"Call submit_distractors with exactly {count} distractors "
-        f"and {count} parallel rationale notes."
+        f"Call submit_distractors with exactly {count} distractors, "
+        f"{count} parallel rationale notes, and {count} parallel misconception "
+        f"labels."
     )

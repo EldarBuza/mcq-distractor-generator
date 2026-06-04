@@ -10,6 +10,7 @@ function q(overrides: Partial<GeneratedQuestion> = {}): GeneratedQuestion {
     correct_index: 1,
     distractors: ['London', 'Rome'],
     rationale: [],
+    misconceptions: [],
     difficulty: 'medium',
     error: null,
     verified: false,
@@ -105,6 +106,7 @@ describe('toJson', () => {
       correct_index: 1,
       difficulty: 'medium',
       rationale: [],
+      misconceptions: [],
     })
     expect(data[0]).not.toHaveProperty('error')
     expect(data[0]).not.toHaveProperty('verified')
