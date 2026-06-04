@@ -38,7 +38,8 @@ def test_generate_validation_error_empty_batch():
 
 
 def test_generate_happy_path(monkeypatch):
-    async def fake_batch(client, settings, questions, verify=False):
+    async def fake_batch(client, settings, questions, verify=False,
+                         check_answer=False):
         return [
             GeneratedQuestion(
                 question=q.question,
@@ -73,8 +74,10 @@ def test_generate_passes_verify_flag(monkeypatch):
     """The endpoint must forward request.verify into generate_batch."""
     seen = {}
 
-    async def fake_batch(client, settings, questions, verify=False):
+    async def fake_batch(client, settings, questions, verify=False,
+                         check_answer=False):
         seen["verify"] = verify
+        seen["check_answer"] = check_answer
         return [
             GeneratedQuestion(
                 question=q.question,
@@ -93,10 +96,62 @@ def test_generate_passes_verify_flag(monkeypatch):
 
     payload = _sample_payload()
     payload["verify"] = True
+    payload["check_answer"] = True
     with TestClient(main.app) as client:
         main.app.state.anthropic = FakeClient()
         resp = client.post("/generate", json=payload)
 
     assert resp.status_code == 200
     assert seen["verify"] is True
+    assert seen["check_answer"] is True
     assert resp.json()["results"][0]["verified"] is True
+
+
+def test_regenerate_503_without_client():
+    with TestClient(main.app) as client:
+        main.app.state.anthropic = None
+        resp = client.post(
+            "/regenerate",
+            json={"question": {"question": "Q?", "correct_answer": "A"}},
+        )
+    assert resp.status_code == 503
+
+
+def test_regenerate_forwards_question_and_keep(monkeypatch):
+    seen = {}
+
+    async def fake_regen(client, settings, question, keep, verify=False):
+        seen["keep"] = [k.text for k in keep]
+        seen["verify"] = verify
+        return GeneratedQuestion(
+            question=question.question,
+            correct_answer=question.correct_answer,
+            options=[question.correct_answer, "Sydney", "X"],
+            correct_index=0,
+            distractors=["Sydney", "X"],
+            rationale=["kept", "new"],
+            difficulty=Difficulty.medium,
+            verified=verify,
+        )
+
+    monkeypatch.setattr(main, "regenerate_partial", fake_regen)
+
+    payload = {
+        "question": {
+            "question": "Capital of Australia?",
+            "correct_answer": "Canberra",
+            "num_distractors": 2,
+        },
+        "keep": [{"text": "Sydney", "rationale": "kept"}],
+        "verify": True,
+    }
+    with TestClient(main.app) as client:
+        main.app.state.anthropic = FakeClient()
+        resp = client.post("/regenerate", json=payload)
+
+    assert resp.status_code == 200
+    assert seen["keep"] == ["Sydney"]
+    assert seen["verify"] is True
+    body = resp.json()
+    assert body["correct_answer"] == "Canberra"
+    assert "Sydney" in body["distractors"]

@@ -9,6 +9,12 @@ export interface QuestionInput {
   difficulty: Difficulty
 }
 
+// Advisory verdict on whether the supplied correct answer is actually correct.
+export interface AnswerCheck {
+  ok: boolean
+  note: string
+}
+
 export interface GeneratedQuestion {
   question: string
   correct_answer: string
@@ -19,10 +25,17 @@ export interface GeneratedQuestion {
   difficulty: Difficulty
   error: string | null
   verified: boolean
+  answer_check: AnswerCheck | null
 }
 
 export interface GenerateResponse {
   results: GeneratedQuestion[]
+}
+
+// A distractor the user locked, sent back so it survives a partial regenerate.
+export interface KeptDistractor {
+  text: string
+  rationale: string
 }
 
 export interface ParseResult {

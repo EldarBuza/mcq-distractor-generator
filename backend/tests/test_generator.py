@@ -4,8 +4,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.config import Settings
-from app.generator import _clean_distractors, generate_one
-from app.models import QuestionInput
+from app.generator import _clean_distractors, generate_one, regenerate_partial
+from app.models import KeptDistractor, QuestionInput
 
 SETTINGS = Settings(anthropic_api_key="test", anthropic_model="test-model")
 
@@ -33,6 +33,52 @@ def _fake_review(oks):
         },
     )
     return SimpleNamespace(content=[block])
+
+
+def _fake_check_message(ok, note=""):
+    """Build a fake submit_answer_check tool_use message."""
+    return SimpleNamespace(
+        content=[
+            SimpleNamespace(
+                type="tool_use",
+                name="submit_answer_check",
+                input={"ok": ok, "note": note},
+            )
+        ]
+    )
+
+
+class RoutingFakeMessages:
+    """Routes each create() to a canned response by the forced tool name, so the
+    concurrent answer-check pass is deterministic regardless of scheduling."""
+
+    def __init__(self, *, distractors, rationale, check, check_raises):
+        self._distractors = distractors
+        self._rationale = rationale or []
+        self._check = check  # (ok, note)
+        self._check_raises = check_raises
+        self.calls = 0
+
+    async def create(self, **kwargs):
+        self.calls += 1
+        name = kwargs["tool_choice"]["name"]
+        if name == "submit_answer_check":
+            if self._check_raises:
+                raise RuntimeError("check boom")
+            return _fake_check_message(*self._check)
+        return _fake_message(self._distractors, self._rationale)
+
+
+class RoutingFakeClient:
+    def __init__(
+        self, distractors, rationale=None, check=(True, ""), check_raises=False
+    ):
+        self.messages = RoutingFakeMessages(
+            distractors=distractors,
+            rationale=rationale,
+            check=check,
+            check_raises=check_raises,
+        )
 
 
 class FakeMessages:
@@ -183,3 +229,156 @@ async def test_generate_one_handles_api_error_gracefully():
     assert "api down" in result.error
     assert result.options == ["A"]
     assert result.correct_index == 0
+
+
+# ---- regenerate_partial -----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_regenerate_keeps_locked_and_fills_the_rest():
+    # Two distractors locked; only one more should be generated.
+    client = FakeClient([_fake_message(["Brisbane", "Darwin"], ["r", "r2"])])
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=3)
+    keep = [
+        KeptDistractor(text="Sydney", rationale="biggest city"),
+        KeptDistractor(text="Melbourne", rationale="former capital"),
+    ]
+    result = await regenerate_partial(client, SETTINGS, q, keep)
+
+    assert result.error is None
+    assert len(result.distractors) == 3
+    assert "Sydney" in result.distractors and "Melbourne" in result.distractors
+    # Kept rationale survives verbatim, paired to its distractor.
+    si = result.distractors.index("Sydney")
+    assert result.rationale[si] == "biggest city"
+    assert client.messages.calls == 1  # asked for only the one missing distractor
+
+
+@pytest.mark.asyncio
+async def test_regenerate_excludes_candidates_matching_kept():
+    # Model returns a kept value ("Sydney") plus a fresh one; the dup is dropped
+    # and a top-up call fills the gap.
+    client = FakeClient([
+        _fake_message(["Sydney", "Perth"]),
+        _fake_message(["Hobart", "Adelaide"]),
+    ])
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=3)
+    keep = [
+        KeptDistractor(text="Sydney"),
+        KeptDistractor(text="Melbourne"),
+    ]
+    result = await regenerate_partial(client, SETTINGS, q, keep)
+
+    assert result.error is None
+    assert len(result.distractors) == 3
+    # "Sydney" must appear exactly once (kept), never duplicated by generation.
+    assert result.distractors.count("Sydney") == 1
+    assert "Perth" in result.distractors
+
+
+@pytest.mark.asyncio
+async def test_regenerate_with_no_kept_is_a_full_regen():
+    client = FakeClient([_fake_message(["Sydney", "Melbourne", "Perth"])])
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=3)
+    result = await regenerate_partial(client, SETTINGS, q, [])
+
+    assert result.error is None
+    assert len(result.distractors) == 3
+    assert "Canberra" in result.options
+
+
+@pytest.mark.asyncio
+async def test_regenerate_all_locked_makes_no_model_call():
+    client = FakeClient([])  # no responses available — must not call the model
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=2)
+    keep = [KeptDistractor(text="Sydney"), KeptDistractor(text="Melbourne")]
+    result = await regenerate_partial(client, SETTINGS, q, keep)
+
+    assert result.error is None
+    assert set(result.distractors) == {"Sydney", "Melbourne"}
+    assert client.messages.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_regenerate_drops_kept_equal_to_correct_answer():
+    # A kept value equal to the correct answer is discarded, so a replacement
+    # is generated to reach the requested count.
+    client = FakeClient([_fake_message(["Sydney", "Perth"])])
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=2)
+    keep = [
+        KeptDistractor(text="Canberra"),  # equals the answer -> dropped
+        KeptDistractor(text="Melbourne"),
+    ]
+    result = await regenerate_partial(client, SETTINGS, q, keep)
+
+    assert result.error is None
+    assert "Canberra" not in result.distractors
+    assert "Melbourne" in result.distractors
+    assert len(result.distractors) == 2
+
+
+# ---- answer sanity-check ----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_answer_check_attached_when_ok():
+    client = RoutingFakeClient(
+        ["Sydney", "Melbourne", "Perth"], check=(True, "")
+    )
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=3)
+    result = await generate_one(client, SETTINGS, q, check_answer=True)
+
+    assert result.error is None
+    assert result.answer_check is not None
+    assert result.answer_check.ok is True
+
+
+@pytest.mark.asyncio
+async def test_answer_check_flags_wrong_answer_without_changing_it():
+    client = RoutingFakeClient(
+        ["Tokyo", "Kyoto", "Yokohama"],
+        check=(False, "The capital of Japan is Tokyo, not Osaka."),
+    )
+    q = QuestionInput(question="Capital of Japan?",
+                      correct_answer="Osaka", num_distractors=3)
+    result = await generate_one(client, SETTINGS, q, check_answer=True)
+
+    assert result.error is None
+    # Advisory only — the user's answer is untouched and still the correct one.
+    assert result.correct_answer == "Osaka"
+    assert result.options[result.correct_index] == "Osaka"
+    assert result.answer_check is not None
+    assert result.answer_check.ok is False
+    assert "Tokyo" in result.answer_check.note
+
+
+@pytest.mark.asyncio
+async def test_answer_check_failure_is_swallowed():
+    # The check call raises, but generation still succeeds with no verdict.
+    client = RoutingFakeClient(
+        ["Sydney", "Melbourne", "Perth"], check_raises=True
+    )
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=3)
+    result = await generate_one(client, SETTINGS, q, check_answer=True)
+
+    assert result.error is None
+    assert len(result.distractors) == 3
+    assert result.answer_check is None
+
+
+@pytest.mark.asyncio
+async def test_no_answer_check_when_flag_off():
+    client = RoutingFakeClient(["Sydney", "Melbourne", "Perth"])
+    q = QuestionInput(question="Capital of Australia?",
+                      correct_answer="Canberra", num_distractors=3)
+    result = await generate_one(client, SETTINGS, q)  # check_answer defaults off
+
+    assert result.answer_check is None
+    assert client.messages.calls == 1  # generation only, no check call

@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { generate, getHealth } from '@/lib/api'
-import type { GeneratedQuestion, HealthResponse, QuestionInput } from '@/types'
+import { generate, getHealth, regenerateDistractors } from '@/lib/api'
+import type {
+  GeneratedQuestion,
+  HealthResponse,
+  KeptDistractor,
+  QuestionInput,
+} from '@/types'
 import { InputPanel } from '@/components/InputPanel'
 import { QuestionEditorList } from '@/components/QuestionEditorList'
 import { ResultsList } from '@/components/ResultsList'
@@ -40,6 +45,11 @@ function App() {
   >('mcq.generatedInputs', [])
   // Optional second LLM pass that critiques and prunes weak distractors.
   const [verify, setVerify] = usePersistentState('mcq.verify', false)
+  // Optional advisory pass: flag a supplied answer that looks incorrect.
+  const [checkAnswer, setCheckAnswer] = usePersistentState(
+    'mcq.checkAnswer',
+    false,
+  )
   const [generating, setGenerating] = useState(false)
   const [regeneratingIndex, setRegeneratingIndex] = useState<number | null>(null)
   const [resultsView, setResultsView] = useState<ResultsView>('key')
@@ -89,7 +99,7 @@ function App() {
     setGenerating(true)
     setResults(null)
     try {
-      const resp = await generate(valid, verify)
+      const resp = await generate(valid, verify, checkAnswer)
       setResults(resp.results)
       setGeneratedInputs(valid)
       const failed = resp.results.filter((r) => r.error).length
@@ -102,15 +112,20 @@ function App() {
     }
   }
 
-  async function handleRegenerate(index: number) {
+  async function handleRegenerate(index: number, keep: KeptDistractor[] = []) {
     const input = generatedInputs[index]
     if (!input) return
     setRegeneratingIndex(index)
     try {
-      const resp = await generate([input], verify)
-      const fresh = resp.results[0]
+      const fresh = await regenerateDistractors(input, keep, verify)
+      // The answer didn't change, so carry the prior advisory check forward
+      // rather than spending another call to recompute it.
       setResults((prev) =>
-        prev ? prev.map((r, i) => (i === index ? fresh : r)) : prev,
+        prev
+          ? prev.map((r, i) =>
+              i === index ? { ...fresh, answer_check: r.answer_check } : r,
+            )
+          : prev,
       )
       if (fresh.error) toast.warning('Could not regenerate that question.')
       else toast.success('Regenerated.')
@@ -170,20 +185,36 @@ function App() {
 
         {questions.length > 0 && (
           <div className="sticky bottom-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background/80 px-4 py-3 shadow-lg backdrop-blur">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <Switch
-                checked={verify}
-                onCheckedChange={setVerify}
-                disabled={generating}
-                aria-label="Verify distractors"
-              />
-              <span className="text-sm leading-tight">
-                <span className="font-medium">Verify distractors</span>
-                <span className="block text-xs text-muted-foreground">
-                  Extra AI review pass — slower &amp; higher cost, better quality
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Switch
+                  checked={verify}
+                  onCheckedChange={setVerify}
+                  disabled={generating}
+                  aria-label="Verify distractors"
+                />
+                <span className="text-sm leading-tight">
+                  <span className="font-medium">Verify distractors</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Extra AI review pass — slower &amp; higher cost, better quality
+                  </span>
                 </span>
-              </span>
-            </label>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Switch
+                  checked={checkAnswer}
+                  onCheckedChange={setCheckAnswer}
+                  disabled={generating}
+                  aria-label="Check answer correctness"
+                />
+                <span className="text-sm leading-tight">
+                  <span className="font-medium">Check answer correctness</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Advisory — flags an answer that looks wrong, never changes it
+                  </span>
+                </span>
+              </label>
+            </div>
             <Button
               size="lg"
               onClick={handleGenerate}

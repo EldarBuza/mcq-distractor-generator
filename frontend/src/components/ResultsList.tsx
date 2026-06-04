@@ -1,4 +1,5 @@
-import type { GeneratedQuestion } from '@/types'
+import { useState } from 'react'
+import type { GeneratedQuestion, KeptDistractor } from '@/types'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -8,7 +9,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Check, ChevronDown, Download, RefreshCw, ShieldCheck } from 'lucide-react'
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  Download,
+  Lock,
+  LockOpen,
+  RefreshCw,
+  ShieldCheck,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { exportAiken, exportCsv, exportGift, exportJson } from '@/lib/export'
 
@@ -33,7 +43,7 @@ const DIFFICULTY_VARIANT: Record<
 interface Props {
   results: GeneratedQuestion[]
   regeneratingIndex: number | null
-  onRegenerate: (index: number) => void
+  onRegenerate: (index: number, keep: KeptDistractor[]) => void
 }
 
 /** Map each option to the rationale of its distractor (correct answer has none). */
@@ -49,6 +59,33 @@ export function ResultsList({
   onRegenerate,
 }: Props) {
   const exportable = results.filter((r) => !r.error && r.options.length > 1).length
+
+  // Locked distractor texts per question index. Locked distractors are kept
+  // verbatim when that question is regenerated; the rest are rerolled.
+  const [locked, setLocked] = useState<Record<number, string[]>>({})
+
+  const isLocked = (qi: number, text: string) =>
+    (locked[qi] ?? []).includes(text)
+
+  function toggleLock(qi: number, text: string) {
+    setLocked((prev) => {
+      const cur = prev[qi] ?? []
+      return {
+        ...prev,
+        [qi]: cur.includes(text)
+          ? cur.filter((t) => t !== text)
+          : [...cur, text],
+      }
+    })
+  }
+
+  function regenerate(qi: number, r: GeneratedQuestion) {
+    const lockedTexts = locked[qi] ?? []
+    const keep: KeptDistractor[] = r.distractors
+      .filter((d) => lockedTexts.includes(d))
+      .map((d) => ({ text: d, rationale: rationaleFor(r, d) ?? '' }))
+    onRegenerate(qi, keep)
+  }
 
   return (
     <section className="space-y-4">
@@ -93,7 +130,7 @@ export function ResultsList({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => onRegenerate(i)}
+              onClick={() => regenerate(i, r)}
               disabled={regeneratingIndex !== null}
             >
               <RefreshCw
@@ -102,10 +139,21 @@ export function ResultsList({
                   regeneratingIndex === i && 'animate-spin',
                 )}
               />
-              Regenerate
+              {(locked[i]?.length ?? 0) > 0 ? 'Reroll unlocked' : 'Regenerate'}
             </Button>
           </CardHeader>
           <CardContent>
+            {r.answer_check && !r.answer_check.ok && (
+              <div className="mb-3 flex gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-2.5 text-sm">
+                <AlertTriangle className="size-4 shrink-0 text-amber-600" />
+                <div>
+                  <span className="font-medium">This answer may be incorrect.</span>
+                  {r.answer_check.note && (
+                    <span className="text-muted-foreground"> {r.answer_check.note}</span>
+                  )}
+                </div>
+              </div>
+            )}
             {r.error ? (
               <p className="text-sm text-destructive">
                 Could not generate options: {r.error}
@@ -115,14 +163,17 @@ export function ResultsList({
                 {r.options.map((opt, j) => {
                   const isCorrect = j === r.correct_index
                   const why = isCorrect ? null : rationaleFor(r, opt)
+                  const kept = !isCorrect && isLocked(i, opt)
                   return (
                     <li
                       key={j}
                       className={cn(
-                        'flex gap-3 rounded-md border p-2.5 text-sm',
+                        'flex items-start gap-3 rounded-md border p-2.5 text-sm',
                         isCorrect
                           ? 'border-green-500/50 bg-green-500/10'
-                          : 'border-transparent',
+                          : kept
+                            ? 'border-primary/40 bg-primary/5'
+                            : 'border-transparent',
                       )}
                     >
                       <span
@@ -137,7 +188,9 @@ export function ResultsList({
                       </span>
                       <div className="space-y-0.5">
                         <div className="flex items-center gap-2">
-                          <span className={cn(isCorrect && 'font-medium')}>
+                          <span
+                            className={cn((isCorrect || kept) && 'font-medium')}
+                          >
                             {opt}
                           </span>
                           {isCorrect && (
@@ -148,6 +201,32 @@ export function ResultsList({
                           <p className="text-xs text-muted-foreground">{why}</p>
                         )}
                       </div>
+                      {!isCorrect && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="ml-auto size-7 shrink-0"
+                          aria-label={
+                            kept
+                              ? 'Unlock distractor (will be rerolled)'
+                              : 'Lock distractor (keep on regenerate)'
+                          }
+                          aria-pressed={kept}
+                          title={
+                            kept
+                              ? 'Locked — kept when you regenerate'
+                              : 'Lock to keep this on regenerate'
+                          }
+                          disabled={regeneratingIndex !== null}
+                          onClick={() => toggleLock(i, opt)}
+                        >
+                          {kept ? (
+                            <Lock className="size-3.5 text-primary" />
+                          ) : (
+                            <LockOpen className="size-3.5 text-muted-foreground" />
+                          )}
+                        </Button>
+                      )}
                     </li>
                   )
                 })}

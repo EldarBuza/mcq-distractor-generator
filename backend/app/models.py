@@ -38,6 +38,28 @@ class GenerateRequest(BaseModel):
     # any that are defensible-as-correct, ambiguous, or near-duplicates. Higher
     # quality, but roughly doubles cost and latency. Off by default.
     verify: bool = False
+    # When true, run an advisory pass that judges whether the supplied
+    # correct_answer is actually correct for the question. Never changes the
+    # answer — it only attaches a warning. Off by default.
+    check_answer: bool = False
+
+
+class KeptDistractor(BaseModel):
+    """A distractor the user locked, carried through a partial regeneration so
+    its text and rationale survive verbatim."""
+
+    text: str = Field(..., min_length=1, max_length=1000)
+    rationale: str = ""
+
+
+class RegenerateRequest(BaseModel):
+    """Regenerate only the UNLOCKED distractors of one question, keeping the
+    locked ones. New distractors are generated to avoid duplicating the kept
+    set, then everything is reassembled and reshuffled around the correct answer."""
+
+    question: QuestionInput
+    keep: list[KeptDistractor] = Field(default_factory=list)
+    verify: bool = False
 
 
 # ---- LLM tool output (what Claude must return per question) ------------------
@@ -69,6 +91,17 @@ class ReviewResult(BaseModel):
     verdicts: list[DistractorVerdict] = Field(default_factory=list)
 
 
+class AnswerCheck(BaseModel):
+    """Advisory verdict on whether the supplied correct answer is actually
+    correct. Doubles as the answer-check tool's output schema and the field
+    attached to a finished question. Purely informational — never mutates."""
+
+    ok: bool
+    # Short explanation when ok is False (why the answer looks wrong); may also
+    # carry a brief confirmation when ok is True.
+    note: str = ""
+
+
 # ---- Outbound ---------------------------------------------------------------
 
 
@@ -85,6 +118,8 @@ class GeneratedQuestion(BaseModel):
     error: str | None = None
     # True when the distractors passed through the optional verification pass.
     verified: bool = False
+    # Advisory result of the optional answer sanity-check; None when not run.
+    answer_check: AnswerCheck | None = None
 
 
 class GenerateResponse(BaseModel):
