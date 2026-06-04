@@ -22,6 +22,8 @@ export interface GeneratedQuestion {
   correct_index: number
   distractors: string[]
   rationale: string[]
+  // Short misconception label per distractor, parallel to `distractors`.
+  misconceptions: string[]
   difficulty: Difficulty
   error: string | null
   verified: boolean
@@ -36,6 +38,7 @@ export interface GenerateResponse {
 export interface KeptDistractor {
   text: string
   rationale: string
+  misconception: string
 }
 
 export interface ParseResult {

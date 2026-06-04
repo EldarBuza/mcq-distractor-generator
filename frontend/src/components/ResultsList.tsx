@@ -54,6 +54,14 @@ function rationaleFor(r: GeneratedQuestion, option: string): string | null {
   return r.rationale[di] ?? null
 }
 
+/** The misconception label for a distractor option, if any. */
+function misconceptionFor(r: GeneratedQuestion, option: string): string | null {
+  const di = r.distractors.indexOf(option)
+  if (di === -1) return null
+  const m = r.misconceptions[di]
+  return m ? m : null
+}
+
 export function ResultsList({
   results,
   regeneratingIndex,
@@ -84,7 +92,11 @@ export function ResultsList({
     const lockedTexts = locked[qi] ?? []
     const keep: KeptDistractor[] = r.distractors
       .filter((d) => lockedTexts.includes(d))
-      .map((d) => ({ text: d, rationale: rationaleFor(r, d) ?? '' }))
+      .map((d) => ({
+        text: d,
+        rationale: rationaleFor(r, d) ?? '',
+        misconception: misconceptionFor(r, d) ?? '',
+      }))
     onRegenerate(qi, keep)
   }
 
@@ -176,6 +188,9 @@ export function ResultsList({
                 {r.options.map((opt, j) => {
                   const isCorrect = j === r.correct_index
                   const why = isCorrect ? null : rationaleFor(r, opt)
+                  const misconception = isCorrect
+                    ? null
+                    : misconceptionFor(r, opt)
                   const kept = !isCorrect && isLocked(i, opt)
                   const issue = isCorrect ? undefined : issueFor(j)
                   return (
@@ -201,7 +216,7 @@ export function ResultsList({
                         {LETTERS[j] ?? j + 1}
                       </span>
                       <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <span
                             className={cn((isCorrect || kept) && 'font-medium')}
                           >
@@ -209,6 +224,15 @@ export function ResultsList({
                           </span>
                           {isCorrect && (
                             <Check className="size-4 text-green-600" />
+                          )}
+                          {misconception && (
+                            <Badge
+                              variant="outline"
+                              className="font-normal text-muted-foreground"
+                              title="The misconception this distractor targets"
+                            >
+                              {misconception}
+                            </Badge>
                           )}
                         </div>
                         {why && (
