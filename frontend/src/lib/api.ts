@@ -2,6 +2,7 @@
 // All calls go through "/api", which Vite proxies to the backend in dev and
 // nginx proxies in the Docker build — so there is never a CORS concern.
 import type {
+  Difficulty,
   GeneratedQuestion,
   GenerateResponse,
   HealthResponse,
@@ -55,6 +56,20 @@ export async function regenerateDistractors(
     body: JSON.stringify({ question, keep, verify }),
   })
   return asJson<GeneratedQuestion>(resp)
+}
+
+/** Draft question + correct-answer pairs from a block of source text. */
+export async function generateQuestions(
+  text: string,
+  count: number,
+  difficulty: Difficulty,
+): Promise<{ questions: QuestionInput[] }> {
+  const resp = await fetch(`${BASE}/generate-questions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, count, difficulty }),
+  })
+  return asJson<{ questions: QuestionInput[] }>(resp)
 }
 
 export async function parseFile(file: File): Promise<ParseResult> {

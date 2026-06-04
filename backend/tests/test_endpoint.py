@@ -4,7 +4,7 @@ These tests control app.state.anthropic explicitly so they pass whether or not
 a real key is present in the environment.
 """
 import app.main as main
-from app.models import Difficulty, GeneratedQuestion
+from app.models import Difficulty, GeneratedQuestion, QuestionInput
 from fastapi.testclient import TestClient
 
 
@@ -155,3 +155,48 @@ def test_regenerate_forwards_question_and_keep(monkeypatch):
     body = resp.json()
     assert body["correct_answer"] == "Canberra"
     assert "Sydney" in body["distractors"]
+
+
+def test_generate_questions_503_without_client():
+    with TestClient(main.app) as client:
+        main.app.state.anthropic = None
+        resp = client.post("/generate-questions", json={"text": "some text"})
+    assert resp.status_code == 503
+
+
+def test_generate_questions_happy_path(monkeypatch):
+    seen = {}
+
+    async def fake_gen_questions(client, settings, text, count, difficulty):
+        seen["text"] = text
+        seen["count"] = count
+        seen["difficulty"] = difficulty
+        return [
+            QuestionInput(
+                question="Capital of Japan?",
+                correct_answer="Tokyo",
+                num_distractors=3,
+                difficulty=difficulty,
+            )
+        ]
+
+    monkeypatch.setattr(main, "generate_questions", fake_gen_questions)
+
+    payload = {"text": "Tokyo is the capital of Japan.", "count": 3,
+               "difficulty": "hard"}
+    with TestClient(main.app) as client:
+        main.app.state.anthropic = FakeClient()
+        resp = client.post("/generate-questions", json=payload)
+
+    assert resp.status_code == 200
+    assert seen["count"] == 3
+    assert seen["difficulty"] == Difficulty.hard
+    body = resp.json()
+    assert len(body["questions"]) == 1
+    assert body["questions"][0]["correct_answer"] == "Tokyo"
+
+
+def test_generate_questions_validation_rejects_empty_text():
+    with TestClient(main.app) as client:
+        resp = client.post("/generate-questions", json={"text": ""})
+    assert resp.status_code == 422

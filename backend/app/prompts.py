@@ -122,6 +122,50 @@ CHECK_TOOL = {
 
 CHECK_TOOL_NAME = CHECK_TOOL["name"]
 
+# ---- Question-from-text tool schema -----------------------------------------
+# Generates question + correct-answer pairs from a passage. Distractors are NOT
+# requested here — they are produced by the normal pipeline afterwards.
+
+QUESTIONS_TOOL = {
+    "name": "submit_questions",
+    "description": (
+        "Submit the question + correct-answer pairs drafted from the source "
+        "text. Do not include wrong options."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "questions": {
+                "type": "array",
+                "description": "The drafted question + correct-answer pairs.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "question": {
+                            "type": "string",
+                            "description": (
+                                "A standalone question stem answerable from the "
+                                "source text."
+                            ),
+                        },
+                        "answer": {
+                            "type": "string",
+                            "description": (
+                                "The single, concise, unambiguous correct "
+                                "answer — suitable as one multiple-choice option."
+                            ),
+                        },
+                    },
+                    "required": ["question", "answer"],
+                },
+            }
+        },
+        "required": ["questions"],
+    },
+}
+
+QUESTIONS_TOOL_NAME = QUESTIONS_TOOL["name"]
+
 # ---- System prompt ----------------------------------------------------------
 
 SYSTEM_PROMPT = """\
@@ -223,6 +267,32 @@ NOT rewrite the question or answer. Always respond by calling the \
 """
 
 
+# ---- Question-from-text system prompt ---------------------------------------
+# Static across requests, so it is cache-able like the others.
+
+QUESTIONS_SYSTEM = """\
+You are an expert assessment designer. Given a SOURCE TEXT, you write factual \
+multiple-choice question stems together with their correct answers — but NOT the \
+wrong options (those are produced separately).
+
+Rules:
+1. Each question must be answerable from the source text, testing understanding \
+of an important point rather than trivial wording.
+2. Each correct answer must be a single, unambiguous, concise phrase suitable as \
+one option in a multiple-choice question — not a full sentence when a short \
+phrase will do.
+3. Cover different parts of the text; do not ask two questions about the same \
+fact.
+4. Questions must stand alone — do not write "according to the text/passage" or \
+otherwise refer to the source.
+5. Do NOT write answer options or distractors. Only the question and its one \
+correct answer.
+
+Always respond by calling the `submit_questions` tool with the requested number \
+of pairs.\
+"""
+
+
 # ---- Per-question user message ----------------------------------------------
 
 _DIFFICULTY_GUIDANCE = {
@@ -269,6 +339,32 @@ def build_answer_check_message(q: QuestionInput) -> str:
         f"QUESTION: {q.question}\n"
         f"PROVIDED ANSWER: {q.correct_answer}\n\n"
         "Call submit_answer_check with your verdict."
+    )
+
+
+_QUESTION_DIFFICULTY_GUIDANCE = {
+    Difficulty.easy: (
+        "Difficulty: EASY. Ask about explicit, central facts that a reader who "
+        "skimmed the text could answer."
+    ),
+    Difficulty.medium: (
+        "Difficulty: MEDIUM. Ask questions that require having read and "
+        "understood the relevant passage, not just spotted a keyword."
+    ),
+    Difficulty.hard: (
+        "Difficulty: HARD. Ask questions that require synthesis, inference, or "
+        "attention to detail across the text — while still having a single "
+        "unambiguous answer grounded in it."
+    ),
+}
+
+
+def build_questions_message(text: str, count: int, difficulty: Difficulty) -> str:
+    return (
+        f"SOURCE TEXT:\n{text}\n\n"
+        f"Generate {count} question + correct-answer pairs from this text.\n"
+        f"{_QUESTION_DIFFICULTY_GUIDANCE[difficulty]}\n\n"
+        f"Call submit_questions with exactly {count} pairs."
     )
 
 

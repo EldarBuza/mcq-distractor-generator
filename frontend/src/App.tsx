@@ -171,7 +171,11 @@ function App() {
             <CardTitle className="text-base">Add questions</CardTitle>
           </CardHeader>
           <CardContent>
-            <InputPanel onAdd={addQuestions} onError={(m) => toast.error(m)} />
+            <InputPanel
+              onAdd={addQuestions}
+              onError={(m) => toast.error(m)}
+              keyMissing={keyMissing}
+            />
           </CardContent>
         </Card>
 

@@ -9,11 +9,14 @@ from app.config import get_settings
 from app.generator import generate_batch, regenerate_partial
 from app.models import (
     GeneratedQuestion,
+    GenerateQuestionsRequest,
     GenerateRequest,
     GenerateResponse,
+    QuestionsResponse,
     RegenerateRequest,
 )
 from app.parsing import ParseResult, parse_text, parse_upload
+from app.questions import generate_questions
 from pydantic import BaseModel, Field
 
 # Reject uploads larger than this to avoid unbounded memory use.
@@ -92,6 +95,29 @@ async def regenerate(req: RegenerateRequest) -> GeneratedQuestion:
     return await regenerate_partial(
         client, settings, req.question, req.keep, verify=req.verify
     )
+
+
+@app.post("/generate-questions", response_model=QuestionsResponse)
+async def generate_questions_endpoint(
+    req: GenerateQuestionsRequest,
+) -> QuestionsResponse:
+    """Draft question + correct-answer pairs from a block of source text."""
+    client = app.state.anthropic
+    if client is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ANTHROPIC_API_KEY is not configured on the server.",
+        )
+    try:
+        questions = await generate_questions(
+            client, settings, req.text, req.count, req.difficulty
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not generate questions: {type(exc).__name__}",
+        ) from exc
+    return QuestionsResponse(questions=questions)
 
 
 class ParseTextRequest(BaseModel):
