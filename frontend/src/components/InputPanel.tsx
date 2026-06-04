@@ -231,13 +231,17 @@ export function InputPanel({ onAdd, onError, keyMissing }: Props) {
           className="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-8 text-sm text-muted-foreground cursor-pointer hover:bg-accent/40 transition-colors"
         >
           <Upload className="size-6" />
-          <span>Click to choose a CSV, JSON, TSV, or TXT file</span>
+          <span>Click to choose a CSV, JSON, TSV, TXT, DOCX, or PDF file</span>
+          <span className="text-xs">
+            DOCX/PDF should contain "question | answer" lines or a two-column
+            Q/A table. For prose, use “From text”.
+          </span>
         </label>
         <input
           id="file-input"
           ref={fileRef}
           type="file"
-          accept=".csv,.json,.tsv,.txt"
+          accept=".csv,.json,.tsv,.txt,.docx,.pdf"
           className="sr-only"
           onChange={(e) => handleFile(e.target.files?.[0])}
         />
